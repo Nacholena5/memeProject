@@ -1,0 +1,147 @@
+from __future__ import annotations
+
+import logging
+from uuid import uuid4
+
+from app.alerts.alert_service import AlertService
+from app.clients.birdeye_client import BirdeyeClient
+from app.clients.coinglass_client import CoinGlassClient
+from app.clients.dexscreener_client import DexScreenerClient
+from app.clients.goplus_client import GoPlusClient
+from app.clients.helius_client import HeliusClient
+from app.clients.honeypot_client import HoneypotClient
+from app.config import get_settings
+from app.features.ta_features import compute_ta_snapshot
+from app.ingestion.discovery_service import build_market_snapshot, candidate_filter, market_features
+from app.ingestion.market_context_service import build_derivatives_context, build_market_context
+from app.ingestion.security_service import normalize_security
+from app.ingestion.wallet_flow_service import build_wallet_flow_features
+from app.scoring.decision_engine import decide_signal
+from app.scoring.explainability import build_reasons
+from app.scoring.risk_gate import hard_veto, risk_penalties
+from app.scoring.score_model import compute_scores
+from app.storage.repositories.signal_repository import SignalRepository
+
+logger = logging.getLogger(__name__)
+
+
+async def run_scan_cycle() -> list[dict]:
+    settings = get_settings()
+    correlation_id = str(uuid4())
+
+    repo = SignalRepository()
+    alert_service = AlertService(repo)
+
+    dex = DexScreenerClient(settings.dexscreener_base_url)
+    bird = BirdeyeClient(settings.birdeye_base_url, settings.birdeye_api_key)
+    gp = GoPlusClient(settings.goplus_base_url)
+    hp = HoneypotClient(settings.honeypot_base_url)
+    helius = HeliusClient(settings.helius_rpc_url, settings.helius_api_key)
+    cg = CoinGlassClient(settings.coinglass_base_url, settings.coinglass_api_key)
+
+    context = build_market_context()
+    derivatives = build_derivatives_context(await cg.funding_oi_snapshot("SOL"))
+
+    pairs = await dex.search_pairs(f"{settings.network} meme")
+    ranked: list[dict] = []
+
+    for pair in pairs:
+        market = build_market_snapshot(pair)
+        if not market.get("address") or not candidate_filter(market):
+            continue
+
+        token_addr = market["address"]
+        symbol = market.get("symbol", "UNK")
+
+        try:
+            goplus_data = await gp.token_security("101", token_addr)
+        except Exception:
+            goplus_data = {}
+
+        try:
+            honeypot_data = await hp.honeypot_status(token_addr, chain=settings.network)
+        except Exception:
+            honeypot_data = {}
+
+        security = normalize_security(goplus_data, honeypot_data)
+
+        veto, veto_reasons = hard_veto(security, market)
+        penalties = risk_penalties(security, market)
+
+        ta_features = {}
+        try:
+            ohlcv = await bird.ohlcv(token_addr, interval="15m", limit=200)
+            ta_features = compute_ta_snapshot(ohlcv)
+        except Exception:
+            ta_features = {"momentum": 0.0, "technical_structure": 0.0, "overextension": 0.0, "momentum_loss": 0.0}
+
+        mkt_feats = market_features(market)
+
+        largest_accounts_result = {}
+        signatures_result = {}
+        try:
+            largest_accounts_result = await helius.get_token_largest_accounts(token_addr)
+            signatures_result = await helius.get_signatures_for_address(token_addr, limit=50)
+        except Exception:
+            largest_accounts_result = {}
+            signatures_result = {}
+
+        wallet_flow_features = build_wallet_flow_features(
+            largest_accounts_result=largest_accounts_result,
+            signatures_result=signatures_result,
+            buy_sell_imbalance=market.get("buy_sell_imbalance", 0.0),
+        )
+
+        features = {
+            **context,
+            **derivatives,
+            **mkt_feats,
+            **ta_features,
+            **wallet_flow_features,
+            "bearish_structure": max(0.0, 1.0 - ta_features.get("technical_structure", 0.0)),
+            "data_quality": 0.8,
+            "signal_alignment": 0.7,
+            "safety_quality": security.get("safety_quality", 0.0),
+        }
+
+        reasons = build_reasons(features, penalties, veto_reasons)
+        score = compute_scores(features, penalties=penalties, reasons=reasons)
+        decision = "IGNORE" if veto else decide_signal(score, shortable=bool(derivatives.get("shortable", False)))
+
+        repo.save_score_snapshot(
+            token_address=token_addr,
+            entry_price=market.get("price_usd", 0.0),
+            long_score=score.long_score,
+            short_score=score.short_score,
+            confidence=score.confidence,
+            penalties=score.penalties,
+            veto=veto,
+            decision=decision,
+            reasons_json=score.reasons,
+            features_json=features,
+        )
+
+        row = {
+            "symbol": symbol,
+            "address": token_addr,
+            "decision": decision,
+            "long_score": score.long_score,
+            "short_score": score.short_score,
+            "confidence": score.confidence,
+            "reasons": reasons,
+        }
+        ranked.append(row)
+
+        await alert_service.emit_if_enabled(symbol=symbol, address=token_addr, decision=decision, score=score)
+
+    ranked.sort(key=lambda x: max(x["long_score"], x["short_score"]), reverse=True)
+    top = ranked[: settings.top_k]
+
+    logger.info(
+        "scan_cycle_completed",
+        extra={
+            "event": "scan_completed",
+            "correlation_id": correlation_id,
+        },
+    )
+    return top

@@ -1,0 +1,55 @@
+CREATE TABLE IF NOT EXISTS tokens (
+    id SERIAL PRIMARY KEY,
+    network VARCHAR(20) NOT NULL,
+    address VARCHAR(128) UNIQUE NOT NULL,
+    symbol VARCHAR(32) NOT NULL,
+    first_seen_at TIMESTAMP NOT NULL,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS score_snapshots (
+    id SERIAL PRIMARY KEY,
+    token_address VARCHAR(128) NOT NULL,
+    ts TIMESTAMP NOT NULL,
+    entry_price DOUBLE PRECISION NOT NULL DEFAULT 0,
+    long_score DOUBLE PRECISION NOT NULL,
+    short_score DOUBLE PRECISION NOT NULL,
+    confidence DOUBLE PRECISION NOT NULL,
+    penalties DOUBLE PRECISION NOT NULL,
+    veto BOOLEAN NOT NULL DEFAULT FALSE,
+    decision VARCHAR(20) NOT NULL,
+    reasons_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    features_json JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS alerts_sent (
+    id SERIAL PRIMARY KEY,
+    token_address VARCHAR(128) NOT NULL,
+    ts TIMESTAMP NOT NULL,
+    decision VARCHAR(20) NOT NULL,
+    channel VARCHAR(20) NOT NULL,
+    message_hash VARCHAR(128) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS signal_outcomes (
+    id SERIAL PRIMARY KEY,
+    score_snapshot_id INT NOT NULL,
+    horizon VARCHAR(10) NOT NULL,
+    ret_pct DOUBLE PRECISION NOT NULL DEFAULT 0,
+    max_fav_excursion DOUBLE PRECISION NOT NULL DEFAULT 0,
+    max_adv_excursion DOUBLE PRECISION NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS performance_reports (
+    id SERIAL PRIMARY KEY,
+    ts TIMESTAMP NOT NULL,
+    horizon VARCHAR(10) NOT NULL,
+    n_signals INT NOT NULL DEFAULT 0,
+    win_rate DOUBLE PRECISION NOT NULL DEFAULT 0,
+    avg_win DOUBLE PRECISION NOT NULL DEFAULT 0,
+    avg_loss DOUBLE PRECISION NOT NULL DEFAULT 0,
+    expectancy DOUBLE PRECISION NOT NULL DEFAULT 0,
+    precision_top_decile DOUBLE PRECISION NOT NULL DEFAULT 0,
+    max_drawdown_proxy DOUBLE PRECISION NOT NULL DEFAULT 0,
+    sharpe_proxy DOUBLE PRECISION NOT NULL DEFAULT 0
+);

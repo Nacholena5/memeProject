@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Meme Research Dashboard</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="bg-shape bg-a"></div>
+  <div class="bg-shape bg-b"></div>
+
+  <header class="hero">
+    <div>
+      <p class="eyebrow">SOLANA MEME RESEARCH</p>
+      <h1>Trading Intelligence Dashboard</h1>
+      <p class="subtitle">Scoring cuantitativo, filtros de riesgo, outcomes y métricas en tiempo real.</p>
+    </div>
+    <div class="hero-actions">
+      <button id="refreshBtn" class="btn">Actualizar</button>
+      <span id="lastUpdate" class="muted">-</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card kpi-card">
+      <h2>Estado Sistema</h2>
+      <div class="kpi-grid">
+        <div>
+          <span class="kpi-label">Health</span>
+          <span id="kpiHealth" class="kpi-value">-</span>
+        </div>
+        <div>
+          <span class="kpi-label">Signals 24h</span>
+          <span id="kpiSignals" class="kpi-value">-</span>
+        </div>
+        <div>
+          <span class="kpi-label">Long setups</span>
+          <span id="kpiLong" class="kpi-value">-</span>
+        </div>
+        <div>
+          <span class="kpi-label">Short setups</span>
+          <span id="kpiShort" class="kpi-value">-</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card kpi-card">
+      <h2>Performance Live (4h)</h2>
+      <div class="kpi-grid">
+        <div>
+          <span class="kpi-label">Win rate</span>
+          <span id="kpiWinrate" class="kpi-value">-</span>
+        </div>
+        <div>
+          <span class="kpi-label">Expectancy</span>
+          <span id="kpiExpectancy" class="kpi-value">-</span>
+        </div>
+        <div>
+          <span class="kpi-label">Top decile precision</span>
+          <span id="kpiPrecision" class="kpi-value">-</span>
+        </div>
+        <div>
+          <span class="kpi-label">Max DD proxy</span>
+          <span id="kpiDrawdown" class="kpi-value">-</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-title-row">
+        <h2>Top Long</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Long</th>
+              <th>Conf</th>
+              <th>Hora</th>
+            </tr>
+          </thead>
+          <tbody id="topLongBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="section-title-row">
+        <h2>Top Short</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Short</th>
+              <th>Conf</th>
+              <th>Hora</th>
+            </tr>
+          </thead>
+          <tbody id="topShortBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card chart-card">
+      <div class="section-title-row">
+        <h2>Outcomes recientes (retorno %)</h2>
+      </div>
+      <canvas id="outcomesChart" height="120"></canvas>
+    </section>
+
+    <section class="card chart-card">
+      <div class="section-title-row">
+        <h2>Histórico métricas</h2>
+      </div>
+      <canvas id="metricsChart" height="120"></canvas>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>
