@@ -15,3 +15,24 @@ class BirdeyeClient(BaseHttpClient):
             params={"address": address, "type": interval, "limit": limit},
         )
         return payload.get("data", {}).get("items", [])
+
+    async def recent_listings(self, limit: int = 120) -> list[dict]:
+        candidates = [
+            ("defi/v3/token/list", {"sort_by": "recent_listing_time", "sort_type": "desc", "offset": 0, "limit": limit}),
+            ("defi/tokenlist", {"sort_by": "v24hUSD", "sort_type": "desc", "offset": 0, "limit": limit}),
+        ]
+        for path, params in candidates:
+            try:
+                payload = await self.get(path, params=params)
+            except Exception:
+                continue
+
+            data = payload.get("data", {})
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                for key in ("items", "tokens", "list"):
+                    values = data.get(key)
+                    if isinstance(values, list):
+                        return values
+        return []

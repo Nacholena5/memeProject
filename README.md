@@ -1,58 +1,87 @@
-# Meme Research System (Solana-first)
+# Meme Research Local Dashboard
 
-MVP for meme coin discovery, risk filtering, scoring, and Telegram alerts.
+Personal local-only trading intelligence dashboard for meme-coin research.
 
-## What this MVP does
-- Scans opportunities every X minutes.
-- Pulls data from DexScreener, Birdeye, GoPlus, Honeypot, and optional CoinGlass.
-- Pulls wallet-flow signals from Helius (largest accounts + recent signatures).
-- Applies hard risk veto and soft penalties.
-- Computes long/short score + confidence.
-- Stores snapshots in PostgreSQL.
-- Sends alerts to Telegram.
-- Deduplicates repeated alerts for the same token/setup in a configurable time window.
-- Tracks outcomes at 1h/4h/24h horizons.
-- Computes and stores evaluation metrics automatically (win rate, expectancy, top-decile precision, drawdown proxy, sharpe proxy).
-- Exposes FastAPI endpoints for latest signals and token explanations.
+This repo is optimized for one user, one machine, SQLite-first usage.
 
-## Quick start
-1. Copy env file:
-   - `copy .env.example .env`
-2. Start PostgreSQL:
-   - `docker compose up -d`
-3. Install dependencies:
+## What it does
+- Runs a FastAPI backend + dashboard UI in one local process.
+- Shows V3 dashboard with:
+  - system summary,
+  - market context (`/market/context`),
+  - data quality (`/quality/summary`),
+  - top signals tables,
+  - detail drawer,
+  - local charts and robust fallback states.
+
+## Local-first setup (recommended)
+1. Create and activate venv.
+2. Install dependencies:
    - `pip install -r requirements.txt`
-4. Run API:
-   - `uvicorn app.main:app --reload`
+3. Prepare local env file:
+   - `copy .env.local.example .env.local`
+4. Start app:
+   - `run_local.ps1`
+5. Open browser:
+   - `http://127.0.0.1:8000`
 
-## API
-- `GET /` (dashboard web)
-- `GET /health`
-- `GET /signals/latest?limit=25`
-- `GET /signals/top?decision=LONG_SETUP&limit=10`
-- `GET /tokens/{address}/explain`
-- `GET /outcomes/latest?limit=50`
-- `GET /metrics/reports/latest?limit=50`
-- `GET /metrics/live?horizon=4h`
-- `POST /jobs/run-scan`
+Notes:
+- SQLite is the default path (`sqlite:///./meme_research.db`).
+- `.env.local` is loaded before `.env`.
 
-## Project layout
-- `app/clients`: Provider adapters.
-- `app/ingestion`: Discovery and context builders.
-- `app/features`: TA and feature normalization.
-- `app/scoring`: Risk gate, scoring, decision logic, explanations.
-- `app/alerts`: Telegram formatter and sender.
-- `app/storage`: DB models and repositories.
-- `app/jobs`: Scan loop.
-- `app/api`: HTTP routes.
+## Daily commands (short)
+- Start local server (SQLite):
+  - `python scripts/ops.py serve-sqlite --host 127.0.0.1 --port 8000`
+- Reset demo state:
+  - `python scripts/ops.py reset-demo`
+- Apply QA scenario:
+  - `python scripts/ops.py scenario full`
+  - `python scripts/ops.py scenario partial`
+  - `python scripts/ops.py scenario empty`
+- Probe backend quickly:
+  - `python scripts/ops.py probe --base-url http://127.0.0.1:8000`
+- Run scanner playbook now:
+  - `python scripts/ops.py scanner-run --base-url http://127.0.0.1:8000`
+- Inspect scanner watchlist API:
+  - `http://127.0.0.1:8000/scanner/watchlist/today`
+- Inspect scanner discarded API:
+  - `http://127.0.0.1:8000/scanner/discarded/today`
+- Capture dashboard evidence (png + json):
+  - `python scripts/ops.py capture --base-url http://127.0.0.1:8000`
+- End-to-end tests:
+  - `python scripts/ops.py e2e --base-url http://127.0.0.1:8000`
 
-## Notes
-- Start with Solana meme coins only.
-- Decision engine is deterministic and rules-based.
-- LLM use is optional and only for explanation/reporting.
-- No live execution in MVP.
+## Backup / restore local DB
+- Create backup:
+  - `python scripts/ops.py backup-db`
+- Create named backup:
+  - `python scripts/ops.py backup-db --name before_big_change`
+- Restore backup:
+  - `python scripts/ops.py restore-db backups/<file>.db`
 
-## New env vars
-- `HELIUS_RPC_URL`, `HELIUS_API_KEY`
-- `ALERT_DEDUPE_MINUTES`
-- `OUTCOME_HORIZONS` (example: `1h,4h,24h`)
+## If something breaks
+1. Stop server process.
+2. Run:
+   - `python scripts/ops.py reset-demo`
+3. Run:
+   - `python scripts/ops.py probe --base-url http://127.0.0.1:8000`
+4. Start again:
+   - `run_local.ps1`
+
+## Important files
+- `app/main.py`: app entrypoint.
+- `app/web/static/dashboard.js`: dashboard runtime logic.
+- `app/services/market_context_service.py`: market context logic.
+- `app/services/data_quality_service.py`: data quality logic.
+- `scripts/ops.py`: local operator CLI.
+- `.env.local.example`: personal local env template.
+
+## Optional PostgreSQL path (secondary)
+Not needed for normal local usage.
+- `docker compose up -d`
+- `python scripts/ops.py serve-postgres --host 127.0.0.1 --port 8000`
+
+## More docs
+- `docs/technical-guide.md`
+- `docs/demo-checklist.md`
+- `docs/handoff.md`

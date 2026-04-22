@@ -24,6 +24,9 @@ def build_market_snapshot(pair: dict) -> dict:
     return {
         "address": (pair.get("baseToken") or {}).get("address", ""),
         "symbol": (pair.get("baseToken") or {}).get("symbol", ""),
+        "name": (pair.get("baseToken") or {}).get("name", ""),
+        "chain": str(pair.get("chainId") or "solana").lower(),
+        "principal_pair": str(pair.get("pairAddress") or ""),
         "price_usd": float(pair.get("priceUsd") or 0.0),
         "liquidity_usd": liquidity_usd,
         "volume_1h": volume_1h,

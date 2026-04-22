@@ -21,6 +21,7 @@ from app.scoring.explainability import build_reasons
 from app.scoring.risk_gate import hard_veto, risk_penalties
 from app.scoring.score_model import compute_scores
 from app.storage.repositories.signal_repository import SignalRepository
+from app.services.token_metadata_service import resolve_token_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,18 @@ async def run_scan_cycle() -> list[dict]:
             continue
 
         token_addr = market["address"]
-        symbol = market.get("symbol", "UNK")
+        identity = resolve_token_metadata(
+            token_address=token_addr,
+            symbol=str(market.get("symbol") or ""),
+            name=str(market.get("name") or ""),
+            chain=str(market.get("chain") or settings.network or "solana"),
+            principal_pair=str(market.get("principal_pair") or ""),
+            source_hint="dexscreener",
+        )
+        symbol = identity.token_symbol
+        token_name = identity.token_name
+        token_chain = identity.token_chain
+        principal_pair = identity.principal_pair
 
         try:
             goplus_data = await gp.token_security("101", token_addr)
@@ -107,9 +119,23 @@ async def run_scan_cycle() -> list[dict]:
         reasons = build_reasons(features, penalties, veto_reasons)
         score = compute_scores(features, penalties=penalties, reasons=reasons)
         decision = "IGNORE" if veto else decide_signal(score, shortable=bool(derivatives.get("shortable", False)))
+        if identity.metadata_confidence in {"fallback", "unverified"} and decision == "LONG_SETUP":
+            decision = "IGNORE"
+            veto = True
+            veto_reasons = list(dict.fromkeys([*veto_reasons, "metadata_unverified_or_fallback"]))
 
         repo.save_score_snapshot(
             token_address=token_addr,
+            token_symbol=symbol,
+            token_name=token_name,
+            token_chain=token_chain,
+            principal_pair=principal_pair,
+            metadata_source=identity.metadata_source,
+            metadata_confidence=identity.metadata_confidence,
+            metadata_is_fallback=identity.metadata_is_fallback,
+            metadata_last_source=identity.metadata_last_source,
+            metadata_last_validated_at=identity.metadata_last_validated_at,
+            metadata_conflict=identity.metadata_conflict,
             entry_price=market.get("price_usd", 0.0),
             long_score=score.long_score,
             short_score=score.short_score,
@@ -123,6 +149,15 @@ async def run_scan_cycle() -> list[dict]:
 
         row = {
             "symbol": symbol,
+            "name": token_name,
+            "chain": token_chain,
+            "principal_pair": principal_pair,
+            "metadata_source": identity.metadata_source,
+            "metadata_confidence": identity.metadata_confidence,
+            "metadata_is_fallback": identity.metadata_is_fallback,
+            "metadata_last_source": identity.metadata_last_source,
+            "metadata_last_validated_at": identity.metadata_last_validated_at,
+            "metadata_conflict": identity.metadata_conflict,
             "address": token_addr,
             "decision": decision,
             "long_score": score.long_score,

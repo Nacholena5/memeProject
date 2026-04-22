@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Meme Research Dashboard</title>
+  <title>Panel de Decisión | Meme Research</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
@@ -13,114 +13,533 @@
   <header class="hero">
     <div>
       <p class="eyebrow">SOLANA MEME RESEARCH</p>
-      <h1>Trading Intelligence Dashboard</h1>
-      <p class="subtitle">Scoring cuantitativo, filtros de riesgo, outcomes y métricas en tiempo real.</p>
+      <h1>Panel de decisión de trading</h1>
+      <p class="subtitle">Lectura rápida del sistema, sesgo actual y mejores oportunidades con explicación.</p>
     </div>
     <div class="hero-actions">
-      <button id="refreshBtn" class="btn">Actualizar</button>
+      <button id="refreshBtn" class="btn" aria-label="Actualizar dashboard">Actualizar</button>
+      <button id="runPlaybookBtn" class="btn" aria-label="Correr scanner playbook">Run scan</button>
       <span id="lastUpdate" class="muted">-</span>
     </div>
   </header>
 
+  <section id="backendDownState" class="card error-banner hidden" role="alert">
+    <h2>Sin conexión con backend</h2>
+    <p>No se pudieron actualizar los datos en tiempo real. Verificá la API y la base de datos.</p>
+    <p id="lastValidUpdate" class="muted hidden">Última actualización válida: N/D</p>
+  </section>
+
+  <section id="globalLoading" class="card loading-banner hidden" aria-live="polite">
+    <p>Cargando...</p>
+  </section>
+
   <main class="grid">
-    <section class="card kpi-card">
-      <h2>Estado Sistema</h2>
-      <div class="kpi-grid">
-        <div>
-          <span class="kpi-label">Health</span>
-          <span id="kpiHealth" class="kpi-value">-</span>
-        </div>
-        <div>
-          <span class="kpi-label">Signals 24h</span>
-          <span id="kpiSignals" class="kpi-value">-</span>
-        </div>
-        <div>
-          <span class="kpi-label">Long setups</span>
-          <span id="kpiLong" class="kpi-value">-</span>
-        </div>
-        <div>
-          <span class="kpi-label">Short setups</span>
-          <span id="kpiShort" class="kpi-value">-</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="card kpi-card">
-      <h2>Performance Live (4h)</h2>
-      <div class="kpi-grid">
-        <div>
-          <span class="kpi-label">Win rate</span>
-          <span id="kpiWinrate" class="kpi-value">-</span>
-        </div>
-        <div>
-          <span class="kpi-label">Expectancy</span>
-          <span id="kpiExpectancy" class="kpi-value">-</span>
-        </div>
-        <div>
-          <span class="kpi-label">Top decile precision</span>
-          <span id="kpiPrecision" class="kpi-value">-</span>
-        </div>
-        <div>
-          <span class="kpi-label">Max DD proxy</span>
-          <span id="kpiDrawdown" class="kpi-value">-</span>
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
+    <section class="card priority-1 section-operable-candidates">
       <div class="section-title-row">
-        <h2>Top Long</h2>
+        <h2>Playbook status</h2>
+        <span id="playbookRunState" class="badge badge-info">N/D</span>
+      </div>
+      <div class="kpi-grid scanner-kpi-grid">
+        <div>
+          <span class="kpi-label">Último scan</span>
+          <span id="playbookLastScan" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Fuentes usadas</span>
+          <span id="playbookSources" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Procesadas</span>
+          <span id="playbookProcessed" class="kpi-value">0</span>
+        </div>
+        <div>
+          <span class="kpi-label">Watchlist</span>
+          <span id="playbookWatchlistCount" class="kpi-value">0</span>
+        </div>
+        <div>
+          <span class="kpi-label">Calidad scan</span>
+          <span id="playbookQualityState" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Completitud</span>
+          <span id="playbookCompleteness" class="kpi-value">N/D</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card priority-2">
+      <div class="section-title-row">
+        <h2>Discovery del día</h2>
+      </div>
+      <div class="kpi-grid scanner-kpi-grid">
+        <div>
+          <span class="kpi-label">Detectados hoy</span>
+          <span id="discDetected" class="kpi-value">0</span>
+        </div>
+        <div>
+          <span class="kpi-label">Sobrevivieron</span>
+          <span id="discSurvived" class="kpi-value">0</span>
+        </div>
+        <div>
+          <span class="kpi-label">Descartados</span>
+          <span id="discDiscarded" class="kpi-value">0</span>
+        </div>
+        <div>
+          <span class="kpi-label">Pasaron watchlist</span>
+          <span id="discWatchlist" class="kpi-value">0</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card priority-2">
+      <div class="section-title-row">
+        <h2>Pipeline del embudo</h2>
+      </div>
+      <div class="funnel-grid">
+        <div class="funnel-step"><span>Birdeye detectados</span><strong id="funnelDetected">0</strong></div>
+        <div class="funnel-step"><span>Dex validados</span><strong id="funnelValidated">0</strong></div>
+        <div class="funnel-step"><span>Rankeados</span><strong id="funnelRanked">0</strong></div>
+        <div class="funnel-step"><span>Bloq. identidad</span><strong id="funnelBlockedIdentity">0</strong></div>
+        <div class="funnel-step"><span>Bloq. riesgo</span><strong id="funnelBlockedRisk">0</strong></div>
+        <div class="funnel-step"><span>Degradados quality</span><strong id="funnelDegradedQuality">0</strong></div>
+        <div class="funnel-step"><span>Watchlist final</span><strong id="funnelWatchlist">0</strong></div>
+        <div class="funnel-step"><span>Operables</span><strong id="funnelOperable">0</strong></div>
+        <div class="funnel-step"><span>Solo watchlist</span><strong id="funnelWatchlistOnly">0</strong></div>
+        <div class="funnel-step"><span>No trade</span><strong id="funnelNoTrade">0</strong></div>
+      </div>
+    </section>
+
+    <section class="card executive-card priority-1">
+      <div class="section-title-row">
+        <h2>Resumen del sistema</h2>
+        <span id="execStatusBadge" class="badge badge-ok">Operativo</span>
+      </div>
+      <div class="summary-grid">
+        <div class="summary-item">
+          <span class="summary-label">Sesgo actual</span>
+          <span id="execBias" class="summary-value">Sin datos</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Riesgo general</span>
+          <span id="execRisk" class="summary-value">N/D</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Mejor oportunidad alcista</span>
+          <span id="execBestLong" class="summary-value summary-token">Sin datos</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">Mejor oportunidad bajista</span>
+          <span id="execBestShort" class="summary-value summary-token">Sin datos</span>
+        </div>
+      </div>
+      <p id="execReason" class="summary-reason">Aún no hay información suficiente para emitir una lectura operativa.</p>
+    </section>
+
+    <section class="card market-context priority-2">
+      <div class="section-title-row">
+        <h2>Contexto de mercado</h2>
+        <span id="ctxFreshness" class="muted tiny">Fuente: N/D</span>
+      </div>
+      <div class="context-grid">
+        <div class="context-pill"><span>BTC</span><strong id="ctxBtc">N/D</strong></div>
+        <div class="context-pill"><span>SOL</span><strong id="ctxSol">N/D</strong></div>
+        <div class="context-pill"><span>Régimen meme</span><strong id="ctxMeme">N/D</strong></div>
+        <div class="context-pill"><span>Liquidez mercado</span><strong id="ctxLiq">N/D</strong></div>
+      </div>
+      <p id="ctxConfidence" class="muted tiny">Confianza: N/D</p>
+      <p id="contextEmpty" class="empty-inline hidden">Este bloque requiere datos recientes de mercado para calcular el contexto.</p>
+    </section>
+
+    <section class="card kpi-card priority-2">
+      <div class="section-title-row">
+        <h2>Calidad de datos</h2>
+        <span id="qualityBadge" class="badge badge-info">N/D</span>
+      </div>
+      <div class="kpi-grid">
+        <div>
+          <span class="kpi-label">Señales</span>
+          <span id="qualitySignals" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Outcomes</span>
+          <span id="qualityOutcomes" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Métricas</span>
+          <span id="qualityMetrics" class="kpi-value">N/D</span>
+        </div>
+      </div>
+      <p id="qualityReasons" class="empty-inline hidden">N/D</p>
+    </section>
+
+    <section class="card insights-panel priority-2">
+      <h2>Lectura rápida</h2>
+      <ul id="insightsList" class="insights-list">
+        <li>Cargando insights...</li>
+      </ul>
+    </section>
+
+    <section class="card kpi-card">
+      <div class="section-title-row">
+        <h2>Estado del sistema</h2>
+      </div>
+      <div class="kpi-grid">
+        <div>
+          <span class="kpi-label">Estado técnico</span>
+          <span id="kpiHealth" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Señales últimas 24 h</span>
+          <span id="kpiSignals" class="kpi-value">Sin datos</span>
+        </div>
+        <div>
+          <span class="kpi-label">Setups alcistas</span>
+          <span id="kpiLong" class="kpi-value">Sin datos</span>
+        </div>
+        <div>
+          <span class="kpi-label">Setups bajistas</span>
+          <span id="kpiShort" class="kpi-value">Sin datos</span>
+        </div>
+        <div>
+          <span class="kpi-label">Señales ignoradas</span>
+          <span id="kpiIgnored" class="kpi-value">Sin datos</span>
+        </div>
+        <div>
+          <span class="kpi-label">Bloqueadas por riesgo</span>
+          <span id="kpiBlocked" class="kpi-value">Sin datos</span>
+        </div>
+        <div>
+          <span class="kpi-label">APIs principales</span>
+          <span id="kpiApis" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Última señal</span>
+          <span id="kpiLastSignal" class="kpi-value">N/D</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card kpi-card">
+      <h2>Rendimiento reciente (últimas 4 h)</h2>
+      <div class="kpi-grid">
+        <div>
+          <span class="kpi-label">Tasa de acierto <button class="help-dot" data-tip="Porcentaje de señales ganadoras en la ventana analizada." aria-label="Ayuda tasa de acierto">i</button></span>
+          <span id="kpiWinrate" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Ganancia esperada por señal <button class="help-dot" data-tip="Resultado promedio esperado por cada señal generada." aria-label="Ayuda ganancia esperada">i</button></span>
+          <span id="kpiExpectancy" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Precisión de mejores señales <button class="help-dot" data-tip="Qué porcentaje aciertan las señales de score más alto." aria-label="Ayuda precisión top señales">i</button></span>
+          <span id="kpiPrecision" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Caída máxima estimada <button class="help-dot" data-tip="Mayor caída observada o estimada en el período analizado." aria-label="Ayuda caída máxima estimada">i</button></span>
+          <span id="kpiDrawdown" class="kpi-value">N/D</span>
+        </div>
+        <div>
+          <span class="kpi-label">Señales analizadas (n)</span>
+          <span id="kpiSample" class="kpi-value">Sin datos</span>
+        </div>
+        <div>
+          <span class="kpi-label">Ventana temporal</span>
+          <span id="kpiWindow" class="kpi-value">4 h</span>
+        </div>
+      </div>
+      <p id="performanceEmpty" class="empty-inline hidden">Sin datos de rendimiento suficientes para esta ventana temporal.</p>
+    </section>
+
+    <section class="card priority-1">
+      <div class="section-title-row">
+        <h2>Búsqueda de señales</h2>
+      </div>
+      <div class="signal-search-row">
+        <input id="signalSearchInput" class="signal-search-input" type="text" placeholder="Buscar por symbol, name o token address" aria-label="Buscar señales" />
+        <select id="scannerIdentityFilter" class="signal-search-input" aria-label="Filtrar por identidad">
+          <option value="">Identidad: todas</option>
+          <option value="confirmed">confirmed</option>
+          <option value="inferred">inferred</option>
+          <option value="fallback">fallback</option>
+          <option value="unverified">unverified</option>
+        </select>
+        <select id="operabilityFilter" class="signal-search-input" aria-label="Filtrar por elegibilidad operativa">
+          <option value="">Elegibilidad: todas</option>
+          <option value="operable">Operable</option>
+          <option value="watchlist">Watchlist</option>
+          <option value="bloqueado">Bloqueado</option>
+          <option value="no_trade">No trade</option>
+        </select>
+        <select id="riskFilter" class="signal-search-input" aria-label="Filtrar por riesgo">
+          <option value="">Riesgo: todos</option>
+          <option value="low">Bajo</option>
+          <option value="medium">Medio</option>
+          <option value="high">Alto</option>
+        </select>
+        <label class="inline-check">
+          <input id="hideFallbackFilter" type="checkbox" /> Ocultar fallback/unverified
+        </label>
+        <button id="signalSearchBtn" class="btn" aria-label="Buscar señales">Buscar</button>
+        <button id="signalSearchClear" class="btn" aria-label="Limpiar búsqueda">Limpiar</button>
+      </div>
+      <p class="muted tiny">La tabla prioriza símbolo y nombre; la address se mantiene visible como referencia abreviada.</p>
+    </section>
+
+    <section class="card priority-1">
+      <div class="section-title-row">
+        <h2>Top candidatas operables</h2>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Token</th>
-              <th>Long</th>
-              <th>Conf</th>
+              <th>Chain</th>
+              <th>Setup</th>
+              <th>Score</th>
+              <th>Confianza</th>
+              <th>Riesgo</th>
+              <th>Elegibilidad</th>
+              <th>Motivo</th>
+            </tr>
+          </thead>
+          <tbody id="operableCandidatesBody"></tbody>
+        </table>
+      </div>
+      <p id="emptyOperable" class="empty-inline hidden">No hay candidatas operables en este momento.</p>
+    </section>
+
+    <section class="card section-model-signals">
+      <div class="section-title-row">
+        <h2>Top señales del modelo (alcistas)</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Chain</th>
+              <th>Score alcista</th>
+              <th>Confianza</th>
+              <th>Riesgo</th>
+              <th>Elegibilidad</th>
               <th>Hora</th>
+              <th>Razones</th>
+              <th>Acción</th>
             </tr>
           </thead>
           <tbody id="topLongBody"></tbody>
         </table>
       </div>
+      <p id="emptyLong" class="empty-inline hidden">No hay señales alcistas activas en este momento.</p>
     </section>
 
-    <section class="card">
+    <section class="card section-model-signals">
       <div class="section-title-row">
-        <h2>Top Short</h2>
+        <h2>Top señales del modelo (bajistas)</h2>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Token</th>
-              <th>Short</th>
-              <th>Conf</th>
+              <th>Chain</th>
+              <th>Score bajista</th>
+              <th>Confianza</th>
+              <th>Riesgo</th>
+              <th>Elegibilidad</th>
               <th>Hora</th>
+              <th>Razones</th>
+              <th>Acción</th>
             </tr>
           </thead>
           <tbody id="topShortBody"></tbody>
         </table>
       </div>
+      <p id="emptyShort" class="empty-inline hidden">No hay señales bajistas activas en este momento.</p>
     </section>
 
-    <section class="card chart-card">
+    <section class="card chart-card section-history-charts">
       <div class="section-title-row">
-        <h2>Outcomes recientes (retorno %)</h2>
+        <h2>Resultado de señales recientes</h2>
       </div>
+      <p class="chart-note">Cada barra representa el retorno porcentual (%) de una señal cerrada (mezcla long y short).</p>
       <canvas id="outcomesChart" height="120"></canvas>
+      <div id="outcomesEmpty" class="chart-empty hidden" aria-live="polite">
+        <div class="chart-empty-icon">◎</div>
+        <p class="chart-empty-title">Sin resultados recientes</p>
+        <p class="chart-empty-text">Todavía no hay señales cerradas para mostrar retornos.</p>
+      </div>
     </section>
 
-    <section class="card chart-card">
+    <section class="card chart-card section-history-charts">
       <div class="section-title-row">
-        <h2>Histórico métricas</h2>
+        <h2>Histórico de calidad del modelo</h2>
       </div>
+      <p class="chart-note">Líneas de tasa de acierto (%) y ganancia esperada por señal a lo largo del tiempo.</p>
       <canvas id="metricsChart" height="120"></canvas>
+      <div id="metricsEmpty" class="chart-empty hidden" aria-live="polite">
+        <div class="chart-empty-icon">◌</div>
+        <p class="chart-empty-title">Sin histórico suficiente</p>
+        <p class="chart-empty-text">Todavía no hay datos para graficar la evolución del modelo.</p>
+      </div>
+    </section>
+
+    <section class="card priority-1 section-watchlist-main">
+      <div class="section-title-row">
+        <h2>Watchlist diaria (principal operativo)</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Categoría</th>
+              <th>Elegibilidad</th>
+              <th>Score</th>
+              <th>Confianza</th>
+              <th>Riesgo</th>
+              <th>Liquidez</th>
+              <th>Whale</th>
+              <th>Social</th>
+              <th>Demand</th>
+              <th>Narrative</th>
+              <th>Breakout</th>
+              <th>Hora</th>
+              <th>Motivo principal</th>
+            </tr>
+          </thead>
+          <tbody id="watchlistBody"></tbody>
+        </table>
+      </div>
+      <p id="watchlistEmpty" class="empty-inline hidden">Todavía no hay entradas en la watchlist diaria.</p>
+    </section>
+
+    <section class="card priority-2">
+      <div class="section-title-row">
+        <h2>Top señales por dimensión</h2>
+      </div>
+      <div class="kpi-grid scanner-kpi-grid">
+        <div>
+          <span class="kpi-label">Whale accumulation</span>
+          <span id="topWhalesList" class="kpi-value">Sin datos</span>
+        </div>
+        <div>
+          <span class="kpi-label">Social momentum</span>
+          <span id="topSocialList" class="kpi-value">Sin datos</span>
+        </div>
+        <div>
+          <span class="kpi-label">Demand quality</span>
+          <span id="topDemandList" class="kpi-value">Sin datos</span>
+        </div>
+        <div>
+          <span class="kpi-label">Breakout setup</span>
+          <span id="topBreakoutsList" class="kpi-value">Sin datos</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="card priority-1 section-discarded-blocked">
+      <div class="section-title-row">
+        <h2>Descartadas</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th>Categoría</th>
+              <th>Motivo descarte</th>
+              <th>Flags</th>
+              <th>Hora</th>
+            </tr>
+          </thead>
+          <tbody id="discardedBody"></tbody>
+        </table>
+      </div>
+      <p id="discardedEmpty" class="empty-inline hidden">No hay descartes registrados en el día.</p>
     </section>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <aside id="tokenDrawer" class="drawer">
+    <div class="drawer-panel">
+      <div class="section-title-row">
+        <h2 id="drawerTitle">Detalle de token</h2>
+        <button id="drawerClose" class="btn">Cerrar</button>
+      </div>
+      <p id="drawerSubtitle" class="subtitle">-</p>
+
+      <div class="card inner-card">
+        <h3>Identidad del token</h3>
+        <div class="token-identity-card">
+          <div class="token-identity-row"><span>Nombre completo</span><strong id="dName">N/D</strong></div>
+          <div class="token-identity-row"><span>Símbolo</span><strong id="dSymbol">N/D</strong></div>
+          <div class="token-identity-row"><span>Address (mint)</span><strong id="dAddressFull">N/D</strong></div>
+          <div class="token-identity-row"><span>Chain</span><strong id="dChain">N/D</strong></div>
+          <div class="token-identity-row"><span>Par principal</span><strong id="dPair">N/D</strong></div>
+          <div class="token-identity-row"><span>Metadata source</span><strong id="dMetaSource">N/D</strong></div>
+          <div class="token-identity-row"><span>Metadata confidence</span><strong id="dMetaConfidence">N/D</strong></div>
+          <div class="token-identity-row"><span>Last source used</span><strong id="dMetaLastSource">N/D</strong></div>
+          <div class="token-identity-row"><span>Last validation</span><strong id="dLastValidated">N/D</strong></div>
+          <div class="token-identity-row"><span>Source conflict</span><strong id="dMetaConflict">N/D</strong></div>
+          <div class="token-identity-row"><span>Fallback</span><strong id="dMetaFallback">N/D</strong></div>
+        </div>
+        <div class="identity-actions">
+          <button id="copyAddressBtn" class="btn">Copiar mint</button>
+          <a id="openBirdeyeLink" class="link-btn" href="#" target="_blank" rel="noopener noreferrer">Abrir Birdeye</a>
+          <a id="openDexLink" class="link-btn" href="#" target="_blank" rel="noopener noreferrer">Abrir DexScreener</a>
+          <a id="openSolscanLink" class="link-btn" href="#" target="_blank" rel="noopener noreferrer">Abrir Solscan</a>
+        </div>
+      </div>
+
+      <div class="drawer-grid">
+        <div class="drawer-stat"><span>Score alcista</span><strong id="dLong">-</strong></div>
+        <div class="drawer-stat"><span>Score bajista</span><strong id="dShort">-</strong></div>
+        <div class="drawer-stat"><span>Confianza</span><strong id="dConf">-</strong></div>
+        <div class="drawer-stat"><span>Riesgo</span><strong id="dRisk">-</strong></div>
+        <div class="drawer-stat"><span>Liquidez</span><strong id="dLiq">N/D</strong></div>
+        <div class="drawer-stat"><span>Volumen 1 h</span><strong id="dVol1h">N/D</strong></div>
+        <div class="drawer-stat"><span>Flags de seguridad</span><strong id="dFlags">N/D</strong></div>
+        <div class="drawer-stat"><span>Timestamp</span><strong id="dTs">-</strong></div>
+      </div>
+
+      <div class="card inner-card">
+        <h3>Por qué fue rankeado</h3>
+        <p id="dReasonText" class="subtitle">-</p>
+      </div>
+
+      <div class="card inner-card">
+        <h3>Señales por dimensión</h3>
+        <div class="drawer-grid">
+          <div class="drawer-stat"><span>Whale</span><strong id="dWhale">N/D</strong></div>
+          <div class="drawer-stat"><span>Social</span><strong id="dSocial">N/D</strong></div>
+          <div class="drawer-stat"><span>Demand</span><strong id="dDemand">N/D</strong></div>
+          <div class="drawer-stat"><span>Narrative</span><strong id="dNarrative">N/D</strong></div>
+          <div class="drawer-stat"><span>Breakout</span><strong id="dBreakout">N/D</strong></div>
+          <div class="drawer-stat"><span>Spec momentum</span><strong id="dSpecMomentum">N/D</strong></div>
+          <div class="drawer-stat"><span>Bot suspicion</span><strong id="dBotSuspicion">N/D</strong></div>
+          <div class="drawer-stat"><span>Overextension</span><strong id="dOverextension">N/D</strong></div>
+        </div>
+        <p id="dSignalExplain" class="subtitle">-</p>
+      </div>
+
+      <div class="card inner-card">
+        <h3>Plan sugerido</h3>
+        <div class="drawer-grid">
+          <div class="drawer-stat"><span>Entrada posible</span><strong id="dEntry">N/D</strong></div>
+          <div class="drawer-stat"><span>Invalidación</span><strong id="dInvalid">N/D</strong></div>
+          <div class="drawer-stat"><span>Objetivo sugerido</span><strong id="dTp">N/D</strong></div>
+        </div>
+      </div>
+
+      <div class="card inner-card">
+        <h3>Evolución del score</h3>
+        <canvas id="tokenHistoryChart" height="120"></canvas>
+      </div>
+    </div>
+  </aside>
+
+  <script src="/static/vendor/chart.umd.min.js"></script>
   <script src="/static/dashboard.js"></script>
 </body>
 </html>

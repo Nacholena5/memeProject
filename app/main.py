@@ -8,10 +8,17 @@ from app.api.routes_dashboard import router as dashboard_router
 from app.api.routes_exports import router as exports_router
 from app.api.routes_health import router as health_router
 from app.api.routes_jobs import router as jobs_router
+from app.api.routes_market import router as market_router
 from app.api.routes_metrics import router as metrics_router
+from app.api.routes_narratives import router as narratives_router
 from app.api.routes_outcomes import router as outcomes_router
+from app.api.routes_breakouts import router as breakouts_router
+from app.api.routes_exit_plans import router as exit_plans_router
+from app.api.routes_quality import router as quality_router
+from app.api.routes_scanner import router as scanner_router
 from app.api.routes_signals import router as signals_router
 from app.api.routes_tokens import router as tokens_router
+from app.api.routes_wallets import router as wallets_router
 from app.config import get_settings
 from app.logging_setup import setup_logging
 from app.scheduler import build_scheduler
@@ -39,5 +46,12 @@ app.include_router(signals_router)
 app.include_router(tokens_router)
 app.include_router(outcomes_router)
 app.include_router(metrics_router)
+app.include_router(market_router)
+app.include_router(quality_router)
+app.include_router(scanner_router)
+app.include_router(exit_plans_router)
+app.include_router(wallets_router)
+app.include_router(breakouts_router)
+app.include_router(narratives_router)
 app.include_router(exports_router)
 app.include_router(jobs_router)

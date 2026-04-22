@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, desc, or_, select
 
 from app.storage.db import AlertSent, PerformanceReport, ScoreSnapshot, SignalOutcome, get_session
 
@@ -9,6 +9,16 @@ class SignalRepository:
     def save_score_snapshot(
         self,
         token_address: str,
+        token_symbol: str,
+        token_name: str,
+        token_chain: str,
+        principal_pair: str,
+        metadata_source: str,
+        metadata_confidence: str,
+        metadata_is_fallback: bool,
+        metadata_last_source: str,
+        metadata_last_validated_at,
+        metadata_conflict: bool,
         entry_price: float,
         long_score: float,
         short_score: float,
@@ -22,6 +32,16 @@ class SignalRepository:
         with get_session() as session:
             row = ScoreSnapshot(
                 token_address=token_address,
+                token_symbol=token_symbol,
+                token_name=token_name,
+                token_chain=token_chain,
+                principal_pair=principal_pair,
+                metadata_source=metadata_source,
+                metadata_confidence=metadata_confidence,
+                metadata_is_fallback=metadata_is_fallback,
+                metadata_last_source=metadata_last_source,
+                metadata_last_validated_at=metadata_last_validated_at,
+                metadata_conflict=metadata_conflict,
                 ts=datetime.utcnow(),
                 entry_price=entry_price,
                 long_score=long_score,
@@ -38,21 +58,40 @@ class SignalRepository:
             session.refresh(row)
             return row.id
 
-    def latest_signals(self, limit: int = 50) -> list[ScoreSnapshot]:
+    def latest_signals(self, limit: int = 50, query: str | None = None) -> list[ScoreSnapshot]:
         with get_session() as session:
-            stmt = select(ScoreSnapshot).order_by(desc(ScoreSnapshot.ts)).limit(limit)
+            stmt = select(ScoreSnapshot)
+            stmt = self._apply_identity_query(stmt, query)
+            stmt = stmt.order_by(desc(ScoreSnapshot.ts)).limit(limit)
             return list(session.scalars(stmt).all())
 
-    def latest_top(self, decision: str, limit: int = 10) -> list[ScoreSnapshot]:
+    def latest_top(self, decision: str, limit: int = 10, query: str | None = None) -> list[ScoreSnapshot]:
         with get_session() as session:
             order_by_col = ScoreSnapshot.long_score if decision == "LONG_SETUP" else ScoreSnapshot.short_score
             stmt = (
                 select(ScoreSnapshot)
                 .where(ScoreSnapshot.decision == decision)
-                .order_by(desc(order_by_col), desc(ScoreSnapshot.ts))
-                .limit(limit)
             )
+            stmt = self._apply_identity_query(stmt, query)
+            stmt = stmt.order_by(desc(order_by_col), desc(ScoreSnapshot.ts)).limit(limit)
             return list(session.scalars(stmt).all())
+
+    @staticmethod
+    def _apply_identity_query(stmt: object, query: str | None) -> object:
+        if not query:
+            return stmt
+        normalized = query.strip()
+        if not normalized:
+            return stmt
+        pattern = f"%{normalized}%"
+        return stmt.where(
+            or_(
+                ScoreSnapshot.token_address.ilike(pattern),
+                ScoreSnapshot.token_symbol.ilike(pattern),
+                ScoreSnapshot.token_name.ilike(pattern),
+                ScoreSnapshot.principal_pair.ilike(pattern),
+            )
+        )
 
     def token_signal_history(self, token_address: str, limit: int = 200) -> list[ScoreSnapshot]:
         with get_session() as session:
@@ -197,3 +236,32 @@ class SignalRepository:
         with get_session() as session:
             stmt = select(PerformanceReport).order_by(desc(PerformanceReport.id)).limit(limit)
             return list(session.scalars(stmt).all())
+
+    def latest_signal_timestamp(self) -> datetime | None:
+        with get_session() as session:
+            stmt = select(ScoreSnapshot.ts).order_by(ScoreSnapshot.ts.desc()).limit(1)
+            return session.scalar(stmt)
+
+    def latest_outcome_timestamp(self) -> datetime | None:
+        with get_session() as session:
+            stmt = select(SignalOutcome.id, ScoreSnapshot.ts).join(
+                ScoreSnapshot, ScoreSnapshot.id == SignalOutcome.score_snapshot_id
+            ).order_by(SignalOutcome.id.desc()).limit(1)
+            row = session.execute(stmt).first()
+            return row[1] if row else None
+
+    def latest_metrics_timestamp(self) -> datetime | None:
+        with get_session() as session:
+            stmt = select(PerformanceReport.ts).order_by(PerformanceReport.ts.desc()).limit(1)
+            return session.scalar(stmt)
+
+    def latest_counts(self) -> dict[str, int]:
+        with get_session() as session:
+            signals = session.query(ScoreSnapshot).count()
+            outcomes = session.query(SignalOutcome).count()
+            metrics = session.query(PerformanceReport).count()
+            return {
+                "signals": signals,
+                "outcomes": outcomes,
+                "metrics": metrics,
+            }
