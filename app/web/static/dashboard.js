@@ -130,6 +130,29 @@ function metaSourceClass(value) {
   return `meta-source-${String(value || "unknown").toLowerCase()}`;
 }
 
+function originLabel(value) {
+  const map = {
+    live: "Live",
+    latest_valid: "Histórico",
+    fallback: "Fallback",
+    synthetic: "Synthetic",
+    demo: "Demo",
+    stale: "Stale",
+  };
+  return map[String(value || "live").toLowerCase()] || String(value || "Live");
+}
+
+function originBadgeClass(value) {
+  const normalized = String(value || "live").toLowerCase();
+  if (normalized === "fallback" || normalized === "stale" || normalized === "synthetic" || normalized === "demo") {
+    return "meta-badge meta-warning";
+  }
+  if (normalized === "latest_valid") {
+    return "meta-badge meta-info";
+  }
+  return "meta-badge meta-ok";
+}
+
 function renderMetaBadges(identity) {
   const confidence = identity.metadataConfidence || "unverified";
   const source = identity.metadataSource || "unknown";
@@ -197,6 +220,11 @@ function rowMatchesUiFilters(row) {
   }
 
   return true;
+}
+
+function isOperationalRow(row) {
+  const identity = identityFromRow(row);
+  return !identity.metadataIsFallback && ["confirmed", "inferred"].includes(identity.metadataConfidence);
 }
 
 function setText(id, value) {
@@ -412,7 +440,10 @@ function renderSignalTable(bodyId, rows, normalizedQuery = "") {
         <span class="token-name ${identity.isUncertain ? "token-name-uncertain" : ""}">${identity.symbol}</span>
         <span class="token-sub">${identity.name}</span>
         <span class="token-sub">${identity.shortAddress}</span>
-        <div class="identity-badges">${renderMetaBadges(identity)}</div>
+        <div class="identity-badges">
+          ${renderMetaBadges(identity)}
+          <span class="${originBadgeClass(row?.data_origin)}">${originLabel(row?.data_origin)}</span>
+        </div>
       </td>
       <td>${identity.chain}</td>
       <td>${fmtNum(getSignalScore(row), 1)}</td>
@@ -488,12 +519,12 @@ function renderOperableCandidates(rows, normalizedQuery = "") {
 }
 
 function buildExecutiveSummary(health, latest, longRows, shortRows) {
-  const safeLatest = asArray(latest);
-  const safeLongRows = asArray(longRows);
-  const safeShortRows = asArray(shortRows);
+  const safeLatest = asArray(latest).filter(isOperationalRow);
+  const safeLongRows = asArray(longRows).filter(isOperationalRow);
+  const safeShortRows = asArray(shortRows).filter(isOperationalRow);
   const backendHealthy = health.status === "ok";
-  const longCount = safeLatest.filter((x) => x.decision === "LONG_SETUP").length;
-  const shortCount = safeLatest.filter((x) => x.decision === "SHORT_SETUP").length;
+  const longCount = safeLatest.filter((x) => String(x.category || "").toLowerCase().includes("long")).length;
+  const shortCount = safeLatest.filter((x) => String(x.category || "").toLowerCase().includes("short")).length;
   const biasRatio = longCount - shortCount;
 
   let bias = "Neutral";
@@ -1056,7 +1087,8 @@ function renderWatchlistTable(payload) {
   });
   body.innerHTML = "";
   if (rows.length === 0) {
-    body.innerHTML = '<tr class="empty-row"><td colspan="14">Sin entradas<span class="empty-row-note">Todavía no hay watchlist para hoy.</span></td></tr>';
+    const explanation = payload.empty_explanation || "Todavía no hay watchlist para hoy.";
+    body.innerHTML = `<tr class="empty-row"><td colspan="14">Sin entradas<span class="empty-row-note">${explanation}</span></td></tr>`;
     toggleEmptyState("watchlistEmpty", false);
     return;
   }
@@ -1066,7 +1098,7 @@ function renderWatchlistTable(payload) {
     const identity = identityFromRow(row);
     const tr = document.createElement("tr");
     tr.innerHTML = `
-      <td><span class="token-name">${identity.shortAddress}</span><span class="token-sub">${identity.symbol} · ${identity.name}</span><div class="identity-badges">${renderMetaBadges(identity)}</div></td>
+      <td><span class="token-name">${identity.shortAddress}</span><span class="token-sub">${identity.symbol} · ${identity.name}</span><div class="identity-badges">${renderMetaBadges(identity)}<span class="${originBadgeClass(row?.data_origin)}">${originLabel(row?.data_origin)}</span></div></td>
       <td><span class="category-pill ${categoryClass(row.category)}">${row.category}</span></td>
       <td><span class="${operabilityClass(row.operability_status || "watchlist")}">${operabilityLabel(row.operability_status || "watchlist")}</span></td>
       <td>${fmtNum(Math.max(Number(row.score_long || 0), Number(row.score_short || 0)), 1)}</td>
@@ -1188,6 +1220,14 @@ function renderPlaybookStatus(status, funnel, watchlist, discarded) {
   setText("playbookWatchlistCount", latest.watchlist ?? 0);
   setText("playbookQualityState", latest.degraded ? "Degradada" : "OK");
   setText("playbookCompleteness", latest.status || "empty");
+  const latestValid = status?.latest_valid || null;
+  let sessionSourceLabel = "N/D";
+  if (latest.status === "completed" && !latest.degraded && latest.watchlist_count > 0) {
+    sessionSourceLabel = "Live";
+  } else if (latestValid) {
+    sessionSourceLabel = `Histórico (${latestValid.freshness || "unknown"})`;
+  }
+  setText("playbookSessionSource", sessionSourceLabel);
 
   const badge = document.getElementById("playbookRunState");
   if (badge) {
@@ -1251,6 +1291,8 @@ async function renderScannerBlocks() {
     watchlist || {}
   );
   renderPlaybookStatus(status || {}, funnel || {}, watchlist || {}, discarded || {});
+  STATE.watchlistPayload = watchlist || {};
+  return watchlist || {};
 }
 
 async function refresh() {
@@ -1258,12 +1300,8 @@ async function refresh() {
   toggleBackendDown(false);
   setGlobalStatus(PLACEHOLDER.LOADING);
   try {
-    const querySuffix = STATE.signalQuery ? `&q=${encodeURIComponent(STATE.signalQuery)}` : "";
     const [
       healthResp,
-      latestResp,
-      topLongRawResp,
-      topShortRawResp,
       outcomesResp,
       metricsLiveResp,
       metricsReportsResp,
@@ -1272,9 +1310,6 @@ async function refresh() {
       qualityResp,
     ] = await Promise.all([
       getJson("/health"),
-      getJson(`/signals/latest?limit=200${querySuffix}`),
-      getJson(`/signals/top?decision=LONG_SETUP&limit=40${querySuffix}`),
-      getJson(`/signals/top?decision=SHORT_SETUP&limit=40${querySuffix}`),
       getJson("/outcomes/latest?limit=200"),
       getJson("/metrics/live?horizon=4h"),
       getJson("/metrics/reports/latest?limit=80"),
@@ -1283,26 +1318,24 @@ async function refresh() {
       getJson("/quality/summary"),
     ]);
 
-    await renderScannerBlocks();
+    const watchlistPayload = await renderScannerBlocks();
 
     const health = healthResp && typeof healthResp === "object" ? healthResp : { status: "error" };
-    const latest = asArray(latestResp);
-    const topLongRaw = asArray(topLongRawResp);
-    const topShortRaw = asArray(topShortRawResp);
     const outcomes = asArray(outcomesResp);
     const metricsLive = metricsLiveResp && typeof metricsLiveResp === "object" ? metricsLiveResp : { status: "insufficient_data" };
     const metricsReports = asArray(metricsReportsResp);
     const marketContext = marketContextResp && typeof marketContextResp === "object" ? marketContextResp : null;
     const quality = qualityResp && typeof qualityResp === "object" ? qualityResp : null;
 
-    const topLong = dedupeByToken(topLongRaw).slice(0, 10);
-    const topShort = dedupeByToken(topShortRaw).slice(0, 10);
+    const watchlistRows = flattenWatchlist(watchlistPayload);
+    const topLong = dedupeByToken(asArray(watchlistPayload?.strong).filter(isOperationalRow)).slice(0, 10);
+    const topShort = dedupeByToken(asArray(watchlistPayload?.short_paper).filter(isOperationalRow)).slice(0, 10);
 
-    STATE.latest = latest;
+    STATE.latest = watchlistRows;
     STATE.topLong = topLong;
     STATE.topShort = topShort;
 
-    const summary = buildExecutiveSummary(health, latest, topLong, topShort);
+    const summary = buildExecutiveSummary(health, watchlistRows, topLong, topShort);
 
     const hasPartialDataGap =
       metricsLive.status === "insufficient_data" ||
@@ -1319,15 +1352,15 @@ async function refresh() {
     MarketContextBar(marketContext);
     EventContextCard(eventContextResp || {});
     DataQualityCard(quality);
-    InsightsPanel(summary, metricsLive, latest);
-    SystemCard(health, latest);
+    InsightsPanel(summary, metricsLive, watchlistRows);
+    SystemCard(health, watchlistRows);
     MetricCard(metricsLive);
 
     const normalizedQuery = normalizeSearch(STATE.signalQuery);
     const visibleLong = topLong.filter((row) => rowMatchesSignalQuery(row, normalizedQuery) && rowMatchesUiFilters(row));
     const visibleShort = topShort.filter((row) => rowMatchesSignalQuery(row, normalizedQuery) && rowMatchesUiFilters(row));
 
-    renderOperableCandidates(latest, normalizedQuery);
+    renderOperableCandidates(watchlistRows, normalizedQuery);
     renderSignalTable("topLongBody", topLong, normalizedQuery);
     renderSignalTable("topShortBody", topShort, normalizedQuery);
     toggleEmptyState("emptyLong", visibleLong.length === 0);

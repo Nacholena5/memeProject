@@ -1248,7 +1248,10 @@ def _session_freshness(session) -> dict:
     if session.finished_at is None:
         return {"freshness": "running", "minutes_ago": 0.0}
     now = datetime.now(UTC)
-    minutes = max(0.0, (now - session.finished_at).total_seconds() / 60.0)
+    finished_at = session.finished_at
+    if finished_at.tzinfo is None:
+        finished_at = finished_at.replace(tzinfo=UTC)
+    minutes = max(0.0, (now - finished_at).total_seconds() / 60.0)
     if minutes <= 60:
         label = "fresco"
     elif minutes <= 180:
@@ -1268,24 +1271,39 @@ def _select_session_session(current, latest_valid):
     return None, "none"
 
 
+def _session_payload(session, scope: str) -> dict | None:
+    if session is None:
+        return None
+    freshness = _session_freshness(session)
+    return {
+        "scan_session_id": session.id,
+        "source": scope,
+        "status": session.status,
+        "degraded": session.degraded,
+        "started_at": session.started_at.isoformat() if session.started_at else None,
+        "finished_at": session.finished_at.isoformat() if session.finished_at else None,
+        "watchlist_count": session.watchlist_count,
+        "discarded_count": session.discarded_count,
+        "freshness": freshness["freshness"],
+        "minutes_ago": freshness["minutes_ago"],
+        "sources": session.source_summary_json,
+        "notes": session.notes_json,
+    }
+
+
 def watchlist_today_payload(q: str | None = None, identity: str | None = None) -> dict:
     settings = get_settings()
     repo = scanner_service.repo
     today = date.today()
-    rows = repo.watchlist_for_day(today)
-    today_rows = list(rows)
+    today_rows = repo.watchlist_for_day(today)
+    rows = list(today_rows)
 
-    source = "today"
-    latest_session_id: int | None = None
-    if not rows:
-        latest = repo.latest_session()
-        if latest:
-            rows = repo.watchlist_for_session(latest.id)
-            source = "latest_session"
-            latest_session_id = latest.id
-
-    if latest_session_id is None and rows:
-        latest_session_id = rows[0].scan_session_id
+    source = "today" if rows else "none"
+    current_session = repo.session_by_id(rows[0].scan_session_id) if rows else None
+    latest_valid = repo.latest_valid_session()
+    latest_valid_payload = None
+    if latest_valid is not None and (current_session is None or latest_valid.id != current_session.id):
+        latest_valid_payload = _session_payload(latest_valid, "latest_valid")
 
     normalized_q = (q or "").strip().lower()
     normalized_identity = (identity or "").strip().lower()
@@ -1307,8 +1325,6 @@ def watchlist_today_payload(q: str | None = None, identity: str | None = None) -
 
     blocked_counts = {"identity": 0, "risk": 0, "liquidity": 0, "data_quality": 0, "other": 0}
     discarded_rows = scanner_service.repo.discarded_for_day(today)
-    if not discarded_rows and latest_session_id is not None:
-        discarded_rows = scanner_service.repo.discarded_for_session(latest_session_id)
     for entry in discarded_rows:
         blocked_counts[_blocker_bucket(entry.discard_reason)] += 1
 
@@ -1335,10 +1351,13 @@ def watchlist_today_payload(q: str | None = None, identity: str | None = None) -
     return {
         "date": today.isoformat(),
         "source": source,
-        "strong": [_watch_row(x) for x in strong],
-        "priority": [_watch_row(x) for x in priority],
-        "secondary": [_watch_row(x) for x in secondary],
-        "short_paper": [_watch_row(x) for x in shorts],
+        "is_live": bool(rows),
+        "current_session": _session_payload(current_session, "today") if current_session is not None else None,
+        "latest_valid_session": latest_valid_payload,
+        "strong": [_watch_row(x, source_type="live") for x in strong],
+        "priority": [_watch_row(x, source_type="live") for x in priority],
+        "secondary": [_watch_row(x, source_type="live") for x in secondary],
+        "short_paper": [_watch_row(x, source_type="live") for x in shorts],
         "today_total": len(today_rows),
         "total": len(rows),
         "blocked_breakdown": blocked_counts,
@@ -1346,17 +1365,13 @@ def watchlist_today_payload(q: str | None = None, identity: str | None = None) -
         "excluded_total": len(discarded_rows),
         "latest_nonempty_watchlist": latest_nonempty_payload,
         "empty_explanation": empty_explanation,
+        "latest_valid_available": bool(latest_valid_payload),
     }
 
 
 def discarded_today_payload() -> dict:
     rows = scanner_service.repo.discarded_for_day(date.today())
     source = "today"
-    if not rows:
-        latest = scanner_service.repo.latest_session()
-        if latest:
-            rows = scanner_service.repo.discarded_for_session(latest.id)
-            source = "latest_session"
 
     payload = [
         {
@@ -1391,11 +1406,14 @@ def _operability_from_category(category: str) -> tuple[str, str]:
     return "bloqueado", "Bloqueado por reglas de seguridad/calidad"
 
 
-def _watch_row(row: object) -> dict:
+def _watch_row(row: object, source_type: str = "live") -> dict:
     payload = row.payload_json or {}
     dimensions = (payload.get("signal_dimensions") or {})
     composite = dimensions.get("composite") or {}
     operability_status, operability_reason = _operability_from_category(row.category)
+    data_origin = source_type
+    if row.metadata_is_fallback or (row.metadata_confidence or "").lower() in {"fallback", "unverified"}:
+        data_origin = "fallback"
     return {
         "token_address": row.token_address,
         "symbol": row.symbol,
@@ -1430,4 +1448,6 @@ def _watch_row(row: object) -> dict:
         "speculative_momentum_score": composite.get("speculative_momentum_score", 0.0),
         "ts": row.created_at.isoformat(),
         "scan_session_id": row.scan_session_id,
+        "source_type": source_type,
+        "data_origin": data_origin,
     }

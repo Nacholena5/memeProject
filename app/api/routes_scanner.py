@@ -13,6 +13,22 @@ from app.services.playbook_scanner_service import (
 router = APIRouter(prefix="/scanner", tags=["scanner"])
 
 
+def _serialize_session_summary(session) -> dict | None:
+    if session is None:
+        return None
+    return {
+        "scan_session_id": session.id,
+        "status": session.status,
+        "degraded": session.degraded,
+        "started_at": session.started_at.isoformat() if session.started_at else None,
+        "finished_at": session.finished_at.isoformat() if session.finished_at else None,
+        "watchlist_count": session.watchlist_count,
+        "discarded_count": session.discarded_count,
+        "sources": session.source_summary_json,
+        "notes": session.notes_json,
+    }
+
+
 @router.post("/run")
 async def run_scanner_now() -> dict:
     result = await scanner_service.run_scan(trigger="manual")
@@ -98,7 +114,15 @@ def discarded_today() -> dict:
 
 @router.get("/funnel/latest")
 def funnel_latest() -> dict:
-    session = scanner_service.repo.latest_session()
+    current = scanner_service.repo.latest_session()
+    latest_valid = scanner_service.repo.latest_valid_session()
+    if current and current.status == "completed" and not current.degraded and current.watchlist_count > 0:
+        session = current
+        source = "current"
+    else:
+        session = latest_valid
+        source = "latest_valid" if latest_valid is not None else "none"
+
     if not session:
         return {"status": "empty"}
 
@@ -157,6 +181,7 @@ def funnel_latest() -> dict:
 
     return {
         "status": "ok",
+        "source": source,
         "scan_session_id": session.id,
         "scan_status": session.status,
         "degraded": session.degraded,
@@ -429,17 +454,10 @@ def breakouts_latest(limit: int = Query(default=20, ge=1, le=100)) -> dict:
 @router.get("/status")
 def scanner_status() -> dict:
     latest = scanner_service.repo.latest_session()
+    latest_valid = scanner_service.repo.latest_valid_session()
     return {
         "running": scanner_service.is_running(),
         "today": date.today().isoformat(),
-        "latest": {
-            "scan_session_id": latest.id if latest else None,
-            "status": latest.status if latest else "empty",
-            "degraded": latest.degraded if latest else False,
-            "started_at": latest.started_at.isoformat() if latest else None,
-            "finished_at": latest.finished_at.isoformat() if latest and latest.finished_at else None,
-            "watchlist": latest.watchlist_count if latest else 0,
-            "processed": latest.classified_count if latest else 0,
-            "sources": latest.source_summary_json if latest else {},
-        },
+        "latest": _serialize_session_summary(latest),
+        "latest_valid": _serialize_session_summary(latest_valid),
     }
