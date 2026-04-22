@@ -237,7 +237,7 @@ def seed_stale_data(repo, now: datetime) -> int:
         notes={"seed_type": "stale"},
     )
     repo.add_watchlist_entries([
-        _watch_row(session_id, stale_finished - timedelta(minutes=1), "stale-addr-1", "STL", "WATCHLIST prioritaria", metadata_stale(now))
+        _watch_row(session_id, now - timedelta(minutes=1), "stale-addr-1", "STL", "WATCHLIST prioritaria", metadata_stale(now))
     ])
     return session_id
 

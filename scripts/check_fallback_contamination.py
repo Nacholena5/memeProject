@@ -32,8 +32,10 @@ def main() -> int:
     if args.database_url:
         os.environ["DATABASE_URL"] = args.database_url
 
+    from app.storage.db import init_db
     from app.storage.repositories.scanner_repository import ScannerRepository
 
+    init_db()
     repo = ScannerRepository()
     rows = repo.watchlist_for_day(date.today())
 
