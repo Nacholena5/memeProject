@@ -134,6 +134,7 @@ function originLabel(value) {
   const map = {
     live: "Live",
     latest_valid: "Histórico",
+    historical: "Histórico",
     fallback: "Fallback",
     synthetic: "Synthetic",
     demo: "Demo",
@@ -147,7 +148,7 @@ function originBadgeClass(value) {
   if (normalized === "fallback" || normalized === "stale" || normalized === "synthetic" || normalized === "demo") {
     return "meta-badge meta-warning";
   }
-  if (normalized === "latest_valid") {
+  if (normalized === "latest_valid" || normalized === "historical") {
     return "meta-badge meta-info";
   }
   return "meta-badge meta-ok";
@@ -223,8 +224,14 @@ function rowMatchesUiFilters(row) {
 }
 
 function isOperationalRow(row) {
+  if (typeof row?.is_primary_eligible === "boolean") {
+    return Boolean(row.is_primary_eligible);
+  }
   const identity = identityFromRow(row);
-  return !identity.metadataIsFallback && ["confirmed", "inferred"].includes(identity.metadataConfidence);
+  const stale = String(row?.freshness_state || "").toLowerCase() === "vencido";
+  const source = String(row?.data_origin || "live").toLowerCase();
+  const syntheticOrDemo = Boolean(row?.is_synthetic) || Boolean(row?.is_demo) || source === "synthetic" || source === "demo";
+  return !identity.metadataIsFallback && ["confirmed", "inferred"].includes(identity.metadataConfidence) && !stale && !syntheticOrDemo;
 }
 
 function setText(id, value) {
@@ -477,8 +484,7 @@ function renderOperableCandidates(rows, normalizedQuery = "") {
         status === "operable"
         && rowMatchesSignalQuery(row, normalizedQuery)
         && rowMatchesUiFilters(row)
-        && !identity.metadataIsFallback
-        && ["confirmed", "inferred"].includes(identity.metadataConfidence)
+        && isOperationalRow(row)
       );
     })
     .sort((a, b) => Number(getSignalScore(b)) - Number(getSignalScore(a)))
@@ -539,8 +545,9 @@ function buildExecutiveSummary(health, latest, longRows, shortRows) {
   if (highRisk > Math.max(2, safeLatest.length * 0.25)) marketRisk = "Alto";
   else if (mediumRisk > Math.max(2, safeLatest.length * 0.35)) marketRisk = "Medio";
 
-  const bestLong = safeLongRows[0] ? `${identityFromRow(safeLongRows[0]).symbol} (${fmtNum(safeLongRows[0].long_score, 1)})` : PLACEHOLDER.NO_DATA;
-  const bestShort = safeShortRows[0] ? `${identityFromRow(safeShortRows[0]).symbol} (${fmtNum(safeShortRows[0].short_score, 1)})` : PLACEHOLDER.NO_DATA;
+  const noReliableOpportunity = "Sin oportunidad actual confiable";
+  const bestLong = safeLongRows[0] ? `${identityFromRow(safeLongRows[0]).symbol} (${fmtNum(safeLongRows[0].long_score, 1)})` : noReliableOpportunity;
+  const bestShort = safeShortRows[0] ? `${identityFromRow(safeShortRows[0]).symbol} (${fmtNum(safeShortRows[0].short_score, 1)})` : noReliableOpportunity;
 
   const motive =
     bias === "Long"
@@ -1222,7 +1229,11 @@ function renderPlaybookStatus(status, funnel, watchlist, discarded) {
   setText("playbookCompleteness", latest.status || "empty");
   const latestValid = status?.latest_valid || null;
   let sessionSourceLabel = "N/D";
-  if (latest.status === "completed" && !latest.degraded && latest.watchlist_count > 0) {
+  if (watchlist?.is_current_session) {
+    sessionSourceLabel = "Live";
+  } else if (watchlist?.is_latest_valid_session) {
+    sessionSourceLabel = `Histórico (${watchlist?.freshness_state || "unknown"})`;
+  } else if (latest.status === "completed" && !latest.degraded && latest.watchlist_count > 0) {
     sessionSourceLabel = "Live";
   } else if (latestValid) {
     sessionSourceLabel = `Histórico (${latestValid.freshness || "unknown"})`;
