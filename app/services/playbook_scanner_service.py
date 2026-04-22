@@ -1271,6 +1271,37 @@ def _select_session_session(current, latest_valid):
     return None, "none"
 
 
+def _is_demo_session(session) -> bool:
+    if session is None:
+        return False
+    cfg = session.config_json or {}
+    notes = session.notes_json or {}
+    trigger = str(cfg.get("trigger") or "").strip().lower()
+    notes_text = str(notes.get("mode") or notes.get("scenario") or "").strip().lower()
+    return any(tag in trigger for tag in ("demo", "qa", "scenario", "synthetic")) or any(
+        tag in notes_text for tag in ("demo", "qa", "scenario", "synthetic")
+    )
+
+
+def _is_synthetic_row(row: object) -> bool:
+    payload = getattr(row, "payload_json", None) or {}
+    metadata_source = str(getattr(row, "metadata_source", "") or "").strip().lower()
+    main_reason = str(getattr(row, "main_reason", "") or "").strip().lower()
+    tags = payload.get("tags") or []
+    normalized_tags = {str(tag).strip().lower() for tag in tags if tag is not None}
+    return (
+        bool(payload.get("is_synthetic"))
+        or bool(payload.get("synthetic_case"))
+        or "synthetic" in normalized_tags
+        or metadata_source in {"synthetic", "qa_synthetic"}
+        or "synthetic" in main_reason
+    )
+
+
+def _is_stale_freshness(freshness_state: str) -> bool:
+    return freshness_state in {"vencido", "none"}
+
+
 def _session_payload(session, scope: str) -> dict | None:
     if session is None:
         return None
@@ -1295,15 +1326,11 @@ def watchlist_today_payload(q: str | None = None, identity: str | None = None) -
     settings = get_settings()
     repo = scanner_service.repo
     today = date.today()
-    today_rows = repo.watchlist_for_day(today)
-    rows = list(today_rows)
-
-    source = "today" if rows else "none"
-    current_session = repo.session_by_id(rows[0].scan_session_id) if rows else None
+    current_session = repo.latest_session()
     latest_valid = repo.latest_valid_session()
-    latest_valid_payload = None
-    if latest_valid is not None and (current_session is None or latest_valid.id != current_session.id):
-        latest_valid_payload = _session_payload(latest_valid, "latest_valid")
+    selected_session, selected_scope = _select_session_session(current_session, latest_valid)
+    rows = repo.watchlist_for_session(selected_session.id) if selected_session is not None else []
+    source = selected_scope
 
     normalized_q = (q or "").strip().lower()
     normalized_identity = (identity or "").strip().lower()
@@ -1318,13 +1345,38 @@ def watchlist_today_payload(q: str | None = None, identity: str | None = None) -
     if normalized_identity:
         rows = [x for x in rows if (x.metadata_confidence or "").lower() == normalized_identity]
 
-    strong = [x for x in rows if x.category == "LONG ahora"][: settings.scanner_watchlist_strong_limit]
-    priority = [x for x in rows if x.category == "WATCHLIST prioritaria"][: settings.scanner_watchlist_observe_limit]
-    secondary = [x for x in rows if x.category == "WATCHLIST secundaria"][: settings.scanner_watchlist_observe_limit]
-    shorts = [x for x in rows if x.category == "SHORT solo paper"][: settings.scanner_watchlist_short_limit]
+    selected_freshness = _session_freshness(selected_session)
+    selected_freshness_state = selected_freshness["freshness"]
+    selected_session_ts = (
+        selected_session.finished_at.isoformat()
+        if selected_session and selected_session.finished_at
+        else (selected_session.started_at.isoformat() if selected_session and selected_session.started_at else None)
+    )
+    selected_is_demo = _is_demo_session(selected_session)
+
+    projected_rows = [
+        _watch_row(
+            x,
+            source_type=source,
+            freshness_state=selected_freshness_state,
+            session_timestamp=selected_session_ts,
+            is_demo=selected_is_demo,
+            min_primary_liquidity=settings.scanner_min_liquidity_usd,
+        )
+        for x in rows
+    ]
+
+    strong = [x for x in projected_rows if x["category"] == "LONG ahora"][: settings.scanner_watchlist_strong_limit]
+    priority = [x for x in projected_rows if x["category"] == "WATCHLIST prioritaria"][: settings.scanner_watchlist_observe_limit]
+    secondary = [x for x in projected_rows if x["category"] == "WATCHLIST secundaria"][: settings.scanner_watchlist_observe_limit]
+    shorts = [x for x in projected_rows if x["category"] == "SHORT solo paper"][: settings.scanner_watchlist_short_limit]
 
     blocked_counts = {"identity": 0, "risk": 0, "liquidity": 0, "data_quality": 0, "other": 0}
-    discarded_rows = scanner_service.repo.discarded_for_day(today)
+    discarded_rows = (
+        scanner_service.repo.discarded_for_session(selected_session.id)
+        if selected_session is not None
+        else scanner_service.repo.discarded_for_day(today)
+    )
     for entry in discarded_rows:
         blocked_counts[_blocker_bucket(entry.discard_reason)] += 1
 
@@ -1338,28 +1390,47 @@ def watchlist_today_payload(q: str | None = None, identity: str | None = None) -
             "discarded_count": latest_nonempty.discarded_count,
         }
 
+    latest_valid_payload = None
+    if latest_valid is not None and (current_session is None or latest_valid.id != current_session.id):
+        latest_valid_payload = _session_payload(latest_valid, "latest_valid")
+
     empty_explanation = None
-    if len(rows) == 0:
-        empty_explanation = (
-            "No hubo candidatas operables en la sesión actual; "
-            f"bloqueadas por identidad {blocked_counts['identity']}, "
-            f"riesgo {blocked_counts['risk']}, "
-            f"liquidez {blocked_counts['liquidity']} y "
-            f"data quality {blocked_counts['data_quality']}."
-        )
+    if len(projected_rows) == 0:
+        if source == "latest_valid":
+            empty_explanation = "La sesión actual no tiene watchlist; no se encontró una sesión válida histórica con candidatas para mostrar."
+        elif source == "current":
+            empty_explanation = (
+                "No hubo candidatas operables en la sesión actual; "
+                f"bloqueadas por identidad {blocked_counts['identity']}, "
+                f"riesgo {blocked_counts['risk']}, "
+                f"liquidez {blocked_counts['liquidity']} y "
+                f"data quality {blocked_counts['data_quality']}."
+            )
+        else:
+            empty_explanation = "No hay sesiones disponibles con watchlist para mostrar."
+
+    trusted_total = sum(1 for row in projected_rows if row.get("is_primary_eligible"))
 
     return {
         "date": today.isoformat(),
         "source": source,
-        "is_live": bool(rows),
+        "session_type": "current_session" if source == "current" else ("latest_valid_session" if source == "latest_valid" else "none"),
+        "session_timestamp": selected_session_ts,
+        "freshness_state": selected_freshness_state,
+        "is_current_session": source == "current",
+        "is_latest_valid_session": source == "latest_valid",
+        "is_historical_only": source == "latest_valid",
+        "is_live": source == "current",
+        "uses_latest_valid_fallback": source == "latest_valid",
         "current_session": _session_payload(current_session, "today") if current_session is not None else None,
         "latest_valid_session": latest_valid_payload,
-        "strong": [_watch_row(x, source_type="live") for x in strong],
-        "priority": [_watch_row(x, source_type="live") for x in priority],
-        "secondary": [_watch_row(x, source_type="live") for x in secondary],
-        "short_paper": [_watch_row(x, source_type="live") for x in shorts],
-        "today_total": len(today_rows),
-        "total": len(rows),
+        "strong": strong,
+        "priority": priority,
+        "secondary": secondary,
+        "short_paper": shorts,
+        "today_total": len(rows),
+        "total": len(projected_rows),
+        "trusted_total": trusted_total,
         "blocked_breakdown": blocked_counts,
         "dominant_blocker": _dominant_blocker(blocked_counts),
         "excluded_total": len(discarded_rows),
@@ -1370,29 +1441,52 @@ def watchlist_today_payload(q: str | None = None, identity: str | None = None) -
 
 
 def discarded_today_payload() -> dict:
-    rows = scanner_service.repo.discarded_for_day(date.today())
-    source = "today"
+    current_session = scanner_service.repo.latest_session()
+    latest_valid = scanner_service.repo.latest_valid_session()
+    selected_session, selected_scope = _select_session_session(current_session, latest_valid)
+    rows = (
+        scanner_service.repo.discarded_for_session(selected_session.id)
+        if selected_session is not None
+        else scanner_service.repo.discarded_for_day(date.today())
+    )
+    source = selected_scope
+    selected_freshness = _session_freshness(selected_session)
+    selected_freshness_state = selected_freshness["freshness"]
+    selected_session_ts = (
+        selected_session.finished_at.isoformat()
+        if selected_session and selected_session.finished_at
+        else (selected_session.started_at.isoformat() if selected_session and selected_session.started_at else None)
+    )
+    selected_is_demo = _is_demo_session(selected_session)
 
     payload = [
         {
-            "token_address": x.token_address,
-            "symbol": x.symbol,
-            "category": x.category,
+            **_watch_row(
+                x,
+                source_type=source,
+                freshness_state=selected_freshness_state,
+                session_timestamp=selected_session_ts,
+                is_demo=selected_is_demo,
+                min_primary_liquidity=0.0,
+            ),
             "operability_status": "bloqueado" if x.category != "NO TRADE" else "no_trade",
             "discard_reason": x.discard_reason,
-            "metadata_source": x.metadata_source,
-            "metadata_confidence": x.metadata_confidence,
-            "metadata_is_fallback": x.metadata_is_fallback,
-            "metadata_last_source": x.metadata_last_source,
-            "metadata_last_validated_at": x.metadata_last_validated_at.isoformat() if x.metadata_last_validated_at else None,
-            "metadata_conflict": x.metadata_conflict,
             "flags": x.flags_json,
-            "ts": x.created_at.isoformat(),
-            "scan_session_id": x.scan_session_id,
         }
         for x in rows
     ]
-    return {"date": date.today().isoformat(), "source": source, "total": len(payload), "rows": payload}
+    return {
+        "date": date.today().isoformat(),
+        "source": source,
+        "session_type": "current_session" if source == "current" else ("latest_valid_session" if source == "latest_valid" else "none"),
+        "freshness_state": selected_freshness_state,
+        "session_timestamp": selected_session_ts,
+        "is_current_session": source == "current",
+        "is_latest_valid_session": source == "latest_valid",
+        "is_historical_only": source == "latest_valid",
+        "total": len(payload),
+        "rows": payload,
+    }
 
 
 def _operability_from_category(category: str) -> tuple[str, str]:
@@ -1406,14 +1500,75 @@ def _operability_from_category(category: str) -> tuple[str, str]:
     return "bloqueado", "Bloqueado por reglas de seguridad/calidad"
 
 
-def _watch_row(row: object, source_type: str = "live") -> dict:
+def _watch_row(
+    row: object,
+    source_type: str = "live",
+    *,
+    freshness_state: str = "none",
+    session_timestamp: str | None = None,
+    is_demo: bool = False,
+    min_primary_liquidity: float = 150_000.0,
+) -> dict:
     payload = row.payload_json or {}
     dimensions = (payload.get("signal_dimensions") or {})
     composite = dimensions.get("composite") or {}
     operability_status, operability_reason = _operability_from_category(row.category)
-    data_origin = source_type
-    if row.metadata_is_fallback or (row.metadata_confidence or "").lower() in {"fallback", "unverified"}:
+    metadata_confidence = str(row.metadata_confidence or "").lower()
+    is_fallback = bool(row.metadata_is_fallback) or metadata_confidence in {"fallback", "unverified"}
+    is_current_session = source_type == "current"
+    is_latest_valid_session = source_type == "latest_valid"
+    is_historical_only = is_latest_valid_session
+    is_synthetic = _is_synthetic_row(row)
+    is_stale = _is_stale_freshness(freshness_state)
+    fallback_only = is_fallback
+
+    data_origin = "historical"
+    if is_current_session:
+        data_origin = "live"
+    elif is_latest_valid_session:
+        data_origin = "historical"
+
+    if is_demo:
+        data_origin = "demo"
+    elif is_synthetic:
+        data_origin = "synthetic"
+    elif fallback_only:
         data_origin = "fallback"
+    elif is_stale:
+        data_origin = "stale"
+
+    risk_label = str(row.risk_label or "").lower()
+    risk_ok = risk_label in {"bajo", "medio"}
+    liquidity_value = float(row.liquidity_usd or 0.0)
+    liquidity_ok = liquidity_value >= float(min_primary_liquidity or 0.0)
+    confidence_ok = metadata_confidence not in {"fallback", "unverified"}
+    freshness_ok = not is_stale
+    origin_ok = data_origin in {"live", "historical"}
+    synthetic_demo_ok = not is_demo and not is_synthetic
+
+    is_primary_eligible = (
+        operability_status == "operable"
+        and origin_ok
+        and freshness_ok
+        and confidence_ok
+        and synthetic_demo_ok
+        and risk_ok
+        and liquidity_ok
+    )
+    primary_blockers = []
+    if not origin_ok:
+        primary_blockers.append("invalid_origin")
+    if not freshness_ok:
+        primary_blockers.append("stale_session")
+    if not confidence_ok:
+        primary_blockers.append("unverified_identity")
+    if not synthetic_demo_ok:
+        primary_blockers.append("demo_or_synthetic")
+    if not risk_ok:
+        primary_blockers.append("risk_not_acceptable")
+    if not liquidity_ok:
+        primary_blockers.append("low_liquidity")
+
     return {
         "token_address": row.token_address,
         "symbol": row.symbol,
@@ -1450,4 +1605,15 @@ def _watch_row(row: object, source_type: str = "live") -> dict:
         "scan_session_id": row.scan_session_id,
         "source_type": source_type,
         "data_origin": data_origin,
+        "session_type": "current_session" if is_current_session else ("latest_valid_session" if is_latest_valid_session else "historical"),
+        "session_timestamp": session_timestamp or row.created_at.isoformat(),
+        "freshness_state": freshness_state,
+        "is_current_session": is_current_session,
+        "is_latest_valid_session": is_latest_valid_session,
+        "is_historical_only": is_historical_only,
+        "is_demo": is_demo,
+        "is_synthetic": is_synthetic,
+        "fallback_only": fallback_only,
+        "is_primary_eligible": is_primary_eligible,
+        "primary_blockers": primary_blockers,
     }

@@ -5,6 +5,7 @@ from datetime import date
 from fastapi import APIRouter, HTTPException, Query
 
 from app.services.playbook_scanner_service import (
+    _session_freshness,
     discarded_today_payload,
     scanner_service,
     watchlist_today_payload,
@@ -16,12 +17,16 @@ router = APIRouter(prefix="/scanner", tags=["scanner"])
 def _serialize_session_summary(session) -> dict | None:
     if session is None:
         return None
+    freshness = _session_freshness(session)
     return {
         "scan_session_id": session.id,
         "status": session.status,
         "degraded": session.degraded,
         "started_at": session.started_at.isoformat() if session.started_at else None,
         "finished_at": session.finished_at.isoformat() if session.finished_at else None,
+        "session_timestamp": session.finished_at.isoformat() if session.finished_at else (session.started_at.isoformat() if session.started_at else None),
+        "freshness": freshness["freshness"],
+        "minutes_ago": freshness["minutes_ago"],
         "watchlist_count": session.watchlist_count,
         "discarded_count": session.discarded_count,
         "sources": session.source_summary_json,
@@ -125,6 +130,7 @@ def funnel_latest() -> dict:
 
     if not session:
         return {"status": "empty"}
+    freshness = _session_freshness(session)
 
     watch_rows = scanner_service.repo.watchlist_for_session(session.id)
     discarded_rows = scanner_service.repo.discarded_for_session(session.id)
@@ -182,6 +188,13 @@ def funnel_latest() -> dict:
     return {
         "status": "ok",
         "source": source,
+        "session_type": "current_session" if source == "current" else ("latest_valid_session" if source == "latest_valid" else "none"),
+        "is_current_session": source == "current",
+        "is_latest_valid_session": source == "latest_valid",
+        "is_historical_only": source == "latest_valid",
+        "session_timestamp": session.finished_at.isoformat() if session.finished_at else (session.started_at.isoformat() if session.started_at else None),
+        "freshness_state": freshness["freshness"],
+        "minutes_ago": freshness["minutes_ago"],
         "scan_session_id": session.id,
         "scan_status": session.status,
         "degraded": session.degraded,
