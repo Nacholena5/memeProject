@@ -13,6 +13,7 @@ from app.api.routes_metrics import router as metrics_router
 from app.api.routes_narratives import router as narratives_router
 from app.api.routes_outcomes import router as outcomes_router
 from app.api.routes_breakouts import router as breakouts_router
+from app.api.routes_debug import router as debug_router
 from app.api.routes_exit_plans import router as exit_plans_router
 from app.api.routes_quality import router as quality_router
 from app.api.routes_scanner import router as scanner_router
@@ -55,3 +56,4 @@ app.include_router(breakouts_router)
 app.include_router(narratives_router)
 app.include_router(exports_router)
 app.include_router(jobs_router)
+app.include_router(debug_router)
