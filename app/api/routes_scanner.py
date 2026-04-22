@@ -280,6 +280,30 @@ def paid_attention_latest(limit: int = Query(default=20, ge=1, le=100)) -> dict:
     }
 
 
+@router.get("/events/latest")
+def events_latest(limit: int = Query(default=20, ge=1, le=100)) -> dict:
+    rows = scanner_service.repo.latest_event_sentiments(limit=limit)
+    return {
+        "rows": [
+            {
+                "token_address": x.token_address,
+                "scan_session_id": x.scan_session_id,
+                "event_relevance_score": x.event_relevance_score,
+                "catalyst_probability_score": x.catalyst_probability_score,
+                "catalyst_urgency_score": x.catalyst_urgency_score,
+                "event_sentiment_score": x.event_sentiment_score,
+                "event_volume_score": x.event_volume_score,
+                "consensus_shift_score": x.consensus_shift_score,
+                "macro_event_risk_score": x.macro_event_risk_score,
+                "narrative_alignment_score": x.narrative_alignment_score,
+                "ts": x.ts.isoformat(),
+                "payload": x.payload_json,
+            }
+            for x in rows
+        ]
+    }
+
+
 @router.get("/token/{address}/paid-attention")
 def scanner_token_paid_attention(address: str) -> dict:
     row = scanner_service.repo.token_paid_attention_latest(address)

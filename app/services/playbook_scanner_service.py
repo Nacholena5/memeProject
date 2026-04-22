@@ -9,6 +9,7 @@ from app.clients.dexscreener_client import DexScreenerClient
 from app.config import Settings, get_settings
 from app.services.data_quality_service import DataQualityService
 from app.services.identity_classification_service import classify_with_identity_gate
+from app.services.event_sentiment_service import EventSentimentService
 from app.services.market_context_service import MarketContextService
 from app.services.signal_dimension_service import compute_signal_dimensions
 from app.services.token_metadata_service import TokenMetadata, resolve_token_metadata
@@ -42,6 +43,7 @@ class PlaybookScannerService:
         self.repo = ScannerRepository()
         self.signal_repo = SignalRepository()
         self.market_service = MarketContextService()
+        self.event_service = EventSentimentService()
         self.quality_service = DataQualityService()
         self.birdeye = BirdeyeClient(self.settings.birdeye_base_url, self.settings.birdeye_api_key)
         self.dex = DexScreenerClient(self.settings.dexscreener_base_url)
@@ -87,10 +89,12 @@ class PlaybookScannerService:
                 self.repo.add_flags(flag_rows)
 
                 market_context = await self.market_service.compute_context()
+                event_context = await self.event_service.compute_event_context()
                 quality = self.quality_service.compute()
                 source_summary["dashboard_scores"] = "ok"
+                source_summary["polymarket"] = event_context.get("status", "disabled")
 
-                classified, signal_snapshots = self._classify(validations, market_context, quality, session_id)
+                classified, signal_snapshots = self._classify(validations, market_context, quality, event_context, session_id)
                 watchlist_rows, discarded_rows = self._build_watchlist_rows(classified, session_id)
 
                 self.repo.add_signal_dimension_snapshots(
@@ -100,6 +104,7 @@ class PlaybookScannerService:
                     narrative_rows=signal_snapshots["narrative"],
                     breakout_rows=signal_snapshots["breakout"],
                     paid_attention_rows=signal_snapshots["paid_attention"],
+                    event_signal_rows=signal_snapshots["event_signal"],
                     composite_rows=signal_snapshots["composite"],
                     exit_plan_rows=signal_snapshots["exit_plan"],
                 )
@@ -492,6 +497,7 @@ class PlaybookScannerService:
         validations: list[dict],
         market_context: dict,
         quality: dict,
+        event_context: dict,
         session_id: int,
     ) -> tuple[list[ClassifiedToken], dict[str, list[dict]]]:
         quality_score = self._quality_score(quality)
@@ -506,6 +512,7 @@ class PlaybookScannerService:
             "narrative": [],
             "breakout": [],
             "paid_attention": [],
+            "event_signal": [],
             "composite": [],
             "wallet_flow": [],
             "holder_distribution": [],
@@ -571,7 +578,8 @@ class PlaybookScannerService:
             risk_label_adjusted = self._risk_label(risk_adjusted)
 
             dim_input = self._dimension_input_from_validation(val)
-            dimensions = compute_signal_dimensions(validation=dim_input, score_payload=score)
+            event_signal = self.event_service.token_event_alignment(symbol, str(val.get("name") or ""), val, event_context)
+            dimensions = compute_signal_dimensions(validation=dim_input, score_payload=score, event_signal=event_signal)
             exit_plan = self._build_exit_plan(validation=val, dimensions=dimensions)
             category, reason, explanation, confidence_final = self._apply_dimension_overrides(
                 category=category,
@@ -638,6 +646,15 @@ class PlaybookScannerService:
                     "token_address": token,
                     "ts": snapshot_now,
                     **dimensions.paid_attention,
+                    "payload_json": {"category": category},
+                }
+            )
+            snapshots["event_signal"].append(
+                {
+                    "scan_session_id": session_id,
+                    "token_address": token,
+                    "ts": snapshot_now,
+                    **dimensions.event_signal,
                     "payload_json": {"category": category},
                 }
             )
@@ -780,6 +797,7 @@ class PlaybookScannerService:
                             "narrative": dimensions.narrative,
                             "breakout": dimensions.breakout,
                             "paid_attention": dimensions.paid_attention,
+                            "event_signal": dimensions.event_signal,
                             "composite": dimensions.composite,
                         },
                         "paid_attention": dimensions.paid_attention,
@@ -908,11 +926,18 @@ class PlaybookScannerService:
         flags: dict,
     ) -> str:
         paid = dimensions.paid_attention
+        event_signal = getattr(dimensions, "event_signal", {})
         reasons: list[str] = [explanation]
         if paid.get("paid_attention_high"):
             reasons.append("Paid attention alta: verificar que el torque sea orgánico antes de subir categoría.")
         if paid.get("promo_flow_divergence"):
             reasons.append("Promoción pagada detectada y flujo orgánico bajo; evitar entrada agresiva.")
+        if event_signal.get("event_relevance_score", 0.0) >= 40.0 and event_signal.get("catalyst_urgency_score", 0.0) >= 35.0:
+            reasons.append("Sube de prioridad por catalyst cercano detectado en Polymarket.")
+        if event_signal.get("macro_event_risk_score", 0.0) >= 55.0:
+            reasons.append("Se penaliza por riesgo macro/event-driven desfavorable.")
+        if event_signal.get("narrative_alignment_score", 0.0) >= 40.0:
+            reasons.append("Hay alineación entre narrativa del token y evento relevante del mercado.")
         if exit_plan.get("exit_plan_viability", 0.0) < 40.0:
             reasons.append("Plan de salida débil: priorizar la lista en lugar de entrada inmediata.")
         if dimensions.breakout.get("overextension_penalty", 0.0) > self.settings.scanner_max_overextension_penalty:
@@ -1017,6 +1042,7 @@ class PlaybookScannerService:
         narrative = dimensions.narrative
         breakout = dimensions.breakout
         paid_attention = dimensions.paid_attention
+        event_signal = getattr(dimensions, "event_signal", {})
 
         min_demand = self.settings.scanner_min_transaction_demand
         max_overext = self.settings.scanner_max_overextension_penalty
@@ -1071,6 +1097,21 @@ class PlaybookScannerService:
                 )
                 confidence_final = min(0.82, confidence_final + 0.03)
 
+        if category == "WATCHLIST secundaria":
+            if (
+                event_signal.get("event_relevance_score", 0.0) >= 40.0
+                and event_signal.get("catalyst_urgency_score", 0.0) >= 35.0
+                and event_signal.get("event_sentiment_score", 0.0) >= 45.0
+                and event_signal.get("narrative_alignment_score", 0.0) >= 35.0
+                and risk_adjusted <= self.settings.scanner_max_risk_for_long + 8
+            ):
+                category = "WATCHLIST prioritaria"
+                reason = "Catalyst relevante en Polymarket"
+                explanation = (
+                    "Sube de prioridad por catalyst cercano detectado en Polymarket y alineacion narrativa."
+                )
+                confidence_final = min(0.80, confidence_final + 0.04)
+
         if category in {"WATCHLIST prioritaria", "WATCHLIST secundaria"}:
             if (
                 demand.get("wash_trading_suspicion_score", 0.0) >= 65.0
@@ -1082,6 +1123,22 @@ class PlaybookScannerService:
                     "NO TRADE por divergencia entre social y flujo on-chain con sospecha de wash trading."
                 )
                 confidence_final = min(confidence_final, 0.45)
+
+        if event_signal.get("macro_event_risk_score", 0.0) >= 60.0:
+            if category == "LONG ahora":
+                category = "WATCHLIST prioritaria"
+                reason = "Riesgo macro/event-driven"
+                explanation = (
+                    "Se degrada LONG por riesgo macro/event-driven adverso detectado en Polymarket."
+                )
+                confidence_final = min(confidence_final, 0.72)
+            elif category == "WATCHLIST prioritaria":
+                category = "WATCHLIST secundaria"
+                reason = "Catalyst macro adverso"
+                explanation = (
+                    "Se reduce prioridad por riesgo macro/event-driven desfavorable de Polymarket."
+                )
+                confidence_final = min(confidence_final, 0.64)
 
         if category in {"WATCHLIST prioritaria", "WATCHLIST secundaria", "LONG ahora"}:
             if (
@@ -1183,6 +1240,32 @@ def _dominant_blocker(counts: dict[str, int]) -> str:
     ]
     winner = max(ordered, key=lambda item: counts.get(item[0], 0))
     return winner[1] if counts.get(winner[0], 0) > 0 else "Sin bloqueo dominante"
+
+
+def _session_freshness(session) -> dict:
+    if session is None:
+        return {"freshness": "none", "minutes_ago": None}
+    if session.finished_at is None:
+        return {"freshness": "running", "minutes_ago": 0.0}
+    now = datetime.now(UTC)
+    minutes = max(0.0, (now - session.finished_at).total_seconds() / 60.0)
+    if minutes <= 60:
+        label = "fresco"
+    elif minutes <= 180:
+        label = "degradado"
+    else:
+        label = "vencido"
+    return {"freshness": label, "minutes_ago": round(minutes, 1)}
+
+
+def _select_session_session(current, latest_valid):
+    if current and current.status == "completed" and not current.degraded and current.watchlist_count > 0:
+        return current, "current"
+    if latest_valid is not None:
+        return latest_valid, "latest_valid"
+    if current is not None:
+        return current, "current"
+    return None, "none"
 
 
 def watchlist_today_payload(q: str | None = None, identity: str | None = None) -> dict:

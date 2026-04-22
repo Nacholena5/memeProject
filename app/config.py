@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     coinglass_base_url: str = Field(default="https://open-api.coinglass.com", alias="COINGLASS_BASE_URL")
     coinglass_api_key: str = Field(default="", alias="COINGLASS_API_KEY")
 
+    polymarket_enabled: bool = Field(default=False, alias="POLYMARKET_ENABLED")
+    polymarket_base_url: str = Field(default="https://api.polymarket.com", alias="POLYMARKET_BASE_URL")
+    polymarket_api_key: str = Field(default="", alias="POLYMARKET_API_KEY")
+    polymarket_search_terms: str = Field(default="solana,meme,crypto sentiment,BTC,macro,regulation", alias="POLYMARKET_SEARCH_TERMS")
+    scanner_polymarket_impact: float = Field(default=0.08, alias="SCANNER_POLYMARKET_IMPACT")
+    scanner_polymarket_max_event_boost: float = Field(default=8.0, alias="SCANNER_POLYMARKET_MAX_EVENT_BOOST")
+    scanner_polymarket_risk_penalty: float = Field(default=6.0, alias="SCANNER_POLYMARKET_RISK_PENALTY")
+
     telegram_bot_token: str = Field(default="", alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", alias="TELEGRAM_CHAT_ID")
 

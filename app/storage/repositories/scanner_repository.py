@@ -11,6 +11,7 @@ from app.storage.db import (
     DiscardedEntry,
     DiscoveryCandidate,
     ExitPlanSnapshot,
+    EventSentimentSnapshot,
     HolderDistributionSnapshot,
     NarrativeSignalSnapshot,
     PaidAttentionSnapshot,
@@ -74,6 +75,16 @@ class ScannerRepository:
     def latest_session(self) -> ScanSession | None:
         with get_session() as session:
             stmt = select(ScanSession).order_by(desc(ScanSession.id)).limit(1)
+            return session.scalars(stmt).first()
+
+    def latest_valid_session(self) -> ScanSession | None:
+        with get_session() as session:
+            stmt = (
+                select(ScanSession)
+                .where(ScanSession.status == "completed", ScanSession.degraded == False, ScanSession.watchlist_count > 0)
+                .order_by(desc(ScanSession.id))
+                .limit(1)
+            )
             return session.scalars(stmt).first()
 
     def latest_session_with_watchlist(self) -> ScanSession | None:
@@ -239,6 +250,7 @@ class ScannerRepository:
         narrative_rows: list[dict],
         breakout_rows: list[dict],
         paid_attention_rows: list[dict],
+        event_signal_rows: list[dict],
         composite_rows: list[dict],
         exit_plan_rows: list[dict],
     ) -> None:
@@ -333,6 +345,24 @@ class ScannerRepository:
                         paid_attention_high=bool(item.get("paid_attention_high", False)),
                         promo_flow_divergence=bool(item.get("promo_flow_divergence", False)),
                         paid_vs_organic_gap=item.get("paid_vs_organic_gap", 0.0),
+                        payload_json=item.get("payload_json", {}),
+                    )
+                )
+
+            for item in event_signal_rows:
+                session.add(
+                    EventSentimentSnapshot(
+                        scan_session_id=item["scan_session_id"],
+                        token_address=item["token_address"],
+                        ts=item.get("ts", datetime.now(UTC)),
+                        event_relevance_score=item.get("event_relevance_score", 0.0),
+                        catalyst_probability_score=item.get("catalyst_probability_score", 0.0),
+                        catalyst_urgency_score=item.get("catalyst_urgency_score", 0.0),
+                        event_sentiment_score=item.get("event_sentiment_score", 0.0),
+                        event_volume_score=item.get("event_volume_score", 0.0),
+                        consensus_shift_score=item.get("consensus_shift_score", 0.0),
+                        macro_event_risk_score=item.get("macro_event_risk_score", 0.0),
+                        narrative_alignment_score=item.get("narrative_alignment_score", 0.0),
                         payload_json=item.get("payload_json", {}),
                     )
                 )
@@ -578,6 +608,12 @@ class ScannerRepository:
                 .order_by(desc(SignalCompositeSnapshot.id))
                 .limit(1)
             ).first()
+            event_signal = session.scalars(
+                select(EventSentimentSnapshot)
+                .where(EventSentimentSnapshot.token_address == token_address)
+                .order_by(desc(EventSentimentSnapshot.id))
+                .limit(1)
+            ).first()
 
         def as_dict(row: object, keys: list[str]) -> dict:
             if row is None:
@@ -638,6 +674,19 @@ class ScannerRepository:
                     "overextension_penalty",
                     "entry_timing_score",
                     "invalidation_quality_score",
+                ],
+            ),
+            "event_signal": as_dict(
+                event_signal,
+                [
+                    "event_relevance_score",
+                    "catalyst_probability_score",
+                    "catalyst_urgency_score",
+                    "event_sentiment_score",
+                    "event_volume_score",
+                    "consensus_shift_score",
+                    "macro_event_risk_score",
+                    "narrative_alignment_score",
                 ],
             ),
             "composite": as_dict(
@@ -723,6 +772,21 @@ class ScannerRepository:
         with get_session() as session:
             stmt = select(ExitPlanSnapshot).order_by(desc(ExitPlanSnapshot.id)).limit(limit)
             return list(session.scalars(stmt).all())
+
+    def latest_event_sentiments(self, limit: int = 20) -> list[EventSentimentSnapshot]:
+        with get_session() as session:
+            stmt = select(EventSentimentSnapshot).order_by(desc(EventSentimentSnapshot.id)).limit(limit)
+            return list(session.scalars(stmt).all())
+
+    def token_event_sentiment_latest(self, token_address: str) -> EventSentimentSnapshot | None:
+        with get_session() as session:
+            stmt = (
+                select(EventSentimentSnapshot)
+                .where(EventSentimentSnapshot.token_address == token_address)
+                .order_by(desc(EventSentimentSnapshot.id))
+                .limit(1)
+            )
+            return session.scalars(stmt).first()
 
     def token_exit_plan_latest(self, token_address: str) -> ExitPlanSnapshot | None:
         with get_session() as session:

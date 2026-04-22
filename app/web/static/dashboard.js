@@ -575,6 +575,22 @@ function MarketContextBar(context) {
   });
 }
 
+function EventContextCard(context) {
+  const hasContext = context && typeof context === "object" && context.status === "ok";
+  setText("evtRelevance", hasContext ? `${Number(context.relevance_score || 0).toFixed(1)} %` : PLACEHOLDER.ND);
+  setText("evtCatalyst", hasContext ? `${Number(context.catalyst_urgency_score || 0).toFixed(1)} %` : PLACEHOLDER.ND);
+  setText("evtSentiment", hasContext ? `${Number(context.event_sentiment_score || 0).toFixed(1)} %` : PLACEHOLDER.ND);
+  setText("evtMacroRisk", hasContext ? `${Number(context.macro_event_risk_score || 0).toFixed(1)} %` : PLACEHOLDER.ND);
+  setText("evtFreshness", `Fuente: ${context?.source_freshness || "N/D"}`);
+  if (hasContext && Array.isArray(context.top_events) && context.top_events.length > 0) {
+    const events = context.top_events.slice(0, 2).map((event) => `${event.title || "Evento"} (${event.hours_to_resolution != null ? `${event.hours_to_resolution}h` : "N/D"})`);
+    setText("evtSummary", events.join(" · "));
+  } else {
+    setText("evtSummary", "Ningún catalyst relevante detectado.");
+  }
+  toggleEmptyState("eventEmpty", !hasContext);
+}
+
 function formatQualityDataset(ds) {
   if (!ds || typeof ds !== "object") return PLACEHOLDER.ND;
   const freshness = ds.freshness || "sin datos";
@@ -1252,6 +1268,7 @@ async function refresh() {
       metricsLiveResp,
       metricsReportsResp,
       marketContextResp,
+      eventContextResp,
       qualityResp,
     ] = await Promise.all([
       getJson("/health"),
@@ -1262,6 +1279,7 @@ async function refresh() {
       getJson("/metrics/live?horizon=4h"),
       getJson("/metrics/reports/latest?limit=80"),
       getJson("/market/context"),
+      getJson("/market/events"),
       getJson("/quality/summary"),
     ]);
 
@@ -1299,6 +1317,7 @@ async function refresh() {
 
     ExecutiveCard(summary);
     MarketContextBar(marketContext);
+    EventContextCard(eventContextResp || {});
     DataQualityCard(quality);
     InsightsPanel(summary, metricsLive, latest);
     SystemCard(health, latest);

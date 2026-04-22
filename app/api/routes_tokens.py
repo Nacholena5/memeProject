@@ -61,6 +61,7 @@ def explain(address: str) -> dict:
             identity = _serialize_identity(row)
             paid_attention_snapshot = scanner_service.repo.token_paid_attention_latest(address)
             exit_plan_snapshot = scanner_service.repo.token_exit_plan_latest(address)
+            event_sentiment_snapshot = scanner_service.repo.token_event_sentiment_latest(address)
             return {
                 **identity,
                 "ts": row.ts.isoformat(),
@@ -76,6 +77,16 @@ def explain(address: str) -> dict:
                     "paid_attention_high": paid_attention_snapshot.paid_attention_high if paid_attention_snapshot else None,
                     "promo_flow_divergence": paid_attention_snapshot.promo_flow_divergence if paid_attention_snapshot else None,
                     "paid_vs_organic_gap": paid_attention_snapshot.paid_vs_organic_gap if paid_attention_snapshot else None,
+                },
+                "event_sentiment": {
+                    "event_relevance_score": event_sentiment_snapshot.event_relevance_score if event_sentiment_snapshot else None,
+                    "catalyst_probability_score": event_sentiment_snapshot.catalyst_probability_score if event_sentiment_snapshot else None,
+                    "catalyst_urgency_score": event_sentiment_snapshot.catalyst_urgency_score if event_sentiment_snapshot else None,
+                    "event_sentiment_score": event_sentiment_snapshot.event_sentiment_score if event_sentiment_snapshot else None,
+                    "event_volume_score": event_sentiment_snapshot.event_volume_score if event_sentiment_snapshot else None,
+                    "consensus_shift_score": event_sentiment_snapshot.consensus_shift_score if event_sentiment_snapshot else None,
+                    "macro_event_risk_score": event_sentiment_snapshot.macro_event_risk_score if event_sentiment_snapshot else None,
+                    "narrative_alignment_score": event_sentiment_snapshot.narrative_alignment_score if event_sentiment_snapshot else None,
                 },
                 "exit_plan": {
                     "entry_zone": exit_plan_snapshot.entry_zone if exit_plan_snapshot else None,

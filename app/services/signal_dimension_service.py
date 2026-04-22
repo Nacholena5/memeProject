@@ -16,10 +16,11 @@ class SignalDimensionResult:
     narrative: dict[str, float]
     breakout: dict[str, float]
     paid_attention: dict[str, float | bool]
+    event_signal: dict[str, float]
     composite: dict[str, float | str]
 
 
-def compute_signal_dimensions(validation: dict[str, Any], score_payload: dict[str, Any]) -> SignalDimensionResult:
+def compute_signal_dimensions(validation: dict[str, Any], score_payload: dict[str, Any], event_signal: dict[str, Any] | None = None) -> SignalDimensionResult:
     """Compute conservative signal dimensions from existing on-chain/market evidence.
 
     These dimensions are secondary inputs: they can improve priority/confidence only when
@@ -162,6 +163,16 @@ def compute_signal_dimensions(validation: dict[str, Any], score_payload: dict[st
             "paid_attention_high": paid_attention_high,
             "promo_flow_divergence": promo_flow_divergence,
             "paid_vs_organic_gap": paid_vs_organic_gap,
+        },
+        event_signal={
+            "event_relevance_score": float(event_signal.get("event_relevance_score", 0.0)) if event_signal else 0.0,
+            "catalyst_probability_score": float(event_signal.get("catalyst_probability_score", 0.0)) if event_signal else 0.0,
+            "catalyst_urgency_score": float(event_signal.get("catalyst_urgency_score", 0.0)) if event_signal else 0.0,
+            "event_sentiment_score": float(event_signal.get("event_sentiment_score", 0.0)) if event_signal else 0.0,
+            "event_volume_score": float(event_signal.get("event_volume_score", 0.0)) if event_signal else 0.0,
+            "consensus_shift_score": float(event_signal.get("consensus_shift_score", 0.0)) if event_signal else 0.0,
+            "macro_event_risk_score": float(event_signal.get("macro_event_risk_score", 0.0)) if event_signal else 0.0,
+            "narrative_alignment_score": float(event_signal.get("narrative_alignment_score", 0.0)) if event_signal else 0.0,
         },
         composite={
             "whale_accumulation_score": whale_accumulation_score,

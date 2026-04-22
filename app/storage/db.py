@@ -318,6 +318,24 @@ class PaidAttentionSnapshot(Base):
     payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
+class EventSentimentSnapshot(Base):
+    __tablename__ = "event_sentiment_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scan_session_id: Mapped[int] = mapped_column(Integer, index=True)
+    token_address: Mapped[str] = mapped_column(String(128), index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, index=True, default=datetime.utcnow)
+    event_relevance_score: Mapped[float] = mapped_column(Float, default=0.0)
+    catalyst_probability_score: Mapped[float] = mapped_column(Float, default=0.0)
+    catalyst_urgency_score: Mapped[float] = mapped_column(Float, default=0.0)
+    event_sentiment_score: Mapped[float] = mapped_column(Float, default=0.0)
+    event_volume_score: Mapped[float] = mapped_column(Float, default=0.0)
+    consensus_shift_score: Mapped[float] = mapped_column(Float, default=0.0)
+    macro_event_risk_score: Mapped[float] = mapped_column(Float, default=0.0)
+    narrative_alignment_score: Mapped[float] = mapped_column(Float, default=0.0)
+    payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
 class ExitPlanSnapshot(Base):
     __tablename__ = "exit_plan_snapshots"
 
