@@ -51,6 +51,27 @@ Notes:
 - End-to-end tests:
   - `python scripts/ops.py e2e --base-url http://127.0.0.1:8000`
 
+## Data integrity guardrails (live/historical/demo/synthetic/fallback/stale)
+- Automated tests (isolated SQLite, no DB contamination required):
+  - `python -m pytest tests/test_data_integrity_guardrails.py`
+- Audit data origins and contamination in main blocks:
+  - `python scripts/check_data_origins.py --fail-on-contamination`
+- Compare current session vs latest valid session and stale usage:
+  - `python scripts/check_session_integrity.py --strict`
+- Detect fallback/demo/synthetic rows in principal blocks:
+  - `python scripts/check_fallback_contamination.py --fail-on-detection`
+
+Optional debug/internal endpoints:
+- `GET /debug/data-origins`
+- `GET /debug/session-health`
+- `GET /debug/current-vs-valid`
+- `GET /debug/fallback-contamination`
+
+Quick dashboard honesty check:
+1. Run `python scripts/check_data_origins.py --fail-on-contamination`
+2. Run `python scripts/check_session_integrity.py --strict`
+3. Verify `/scanner/watchlist/today` shows no `LONG ahora` with fallback/demo/synthetic metadata
+
 ## Backup / restore local DB
 - Create backup:
   - `python scripts/ops.py backup-db`
