@@ -89,6 +89,17 @@ class Settings(BaseSettings):
     scanner_max_overextension_penalty: float = Field(default=38.0, alias="SCANNER_MAX_OVEREXTENSION_PENALTY")
     scanner_min_speculative_momentum_for_boost: float = Field(default=54.0, alias="SCANNER_MIN_SPECULATIVE_MOMENTUM_FOR_BOOST")
 
+    # Anti-sybil / anti-wash thresholds
+    # Hard veto: % of volume explained by top N wallets (wash concentration)
+    max_top_wallets_volume_pct: float = Field(default=80.0, alias="MAX_TOP_WALLETS_VOLUME_PCT")
+    # Hard veto: ratio of new wallets (< 7 days) among active buyers (sybil flood)
+    max_new_wallet_ratio: float = Field(default=0.85, alias="MAX_NEW_WALLET_RATIO")
+    # Hard veto: number of distinct buyer wallets that share the same funding source
+    max_funding_wallet_reuse: int = Field(default=3, alias="MAX_FUNDING_WALLET_REUSE")
+    # Hard veto: minutes between token launch and first large-wallet dump
+    # Values below this threshold indicate a coordinated rug / insider dump
+    min_time_to_first_dump_minutes: float = Field(default=5.0, alias="MIN_TIME_TO_FIRST_DUMP_MINUTES")
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
