@@ -116,7 +116,8 @@ def _discard_row(session_id: int, created_at: datetime, token: str, symbol: str,
     }
 
 
-def create_completed_session(repo, *, started_at: datetime, finished_at: datetime, degraded: bool, watchlist_count: int, discarded_count: int, notes: dict | None = None) -> int:
+def create_completed_session(_repo, *, started_at: datetime, finished_at: datetime, degraded: bool, watchlist_count: int, discarded_count: int, notes: dict | None = None) -> int:
+    """Create a completed ScanSession row directly. The _repo arg is accepted for call-site readability but is unused."""
     from app.storage.db import ScanSession, get_session
 
     with get_session() as session:
