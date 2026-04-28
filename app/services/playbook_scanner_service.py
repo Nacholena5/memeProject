@@ -1261,7 +1261,7 @@ def _session_freshness(session) -> dict:
     return {"freshness": label, "minutes_ago": round(minutes, 1)}
 
 
-def _select_session_session(current, latest_valid):
+def _select_session(current, latest_valid):
     if current and current.status == "completed" and not current.degraded and current.watchlist_count > 0:
         return current, "current"
     if latest_valid is not None:
@@ -1302,6 +1302,10 @@ def _is_stale_freshness(freshness_state: str) -> bool:
     return freshness_state in {"vencido", "none"}
 
 
+# Risk labels that are considered acceptable for primary eligibility
+_ACCEPTABLE_RISK_LABELS: frozenset[str] = frozenset({"bajo", "medio"})
+
+
 def _session_payload(session, scope: str) -> dict | None:
     if session is None:
         return None
@@ -1328,7 +1332,7 @@ def watchlist_today_payload(q: str | None = None, identity: str | None = None) -
     today = date.today()
     current_session = repo.latest_session()
     latest_valid = repo.latest_valid_session()
-    selected_session, selected_scope = _select_session_session(current_session, latest_valid)
+    selected_session, selected_scope = _select_session(current_session, latest_valid)
     rows = repo.watchlist_for_session(selected_session.id) if selected_session is not None else []
     source = selected_scope
 
@@ -1443,7 +1447,7 @@ def watchlist_today_payload(q: str | None = None, identity: str | None = None) -
 def discarded_today_payload() -> dict:
     current_session = scanner_service.repo.latest_session()
     latest_valid = scanner_service.repo.latest_valid_session()
-    selected_session, selected_scope = _select_session_session(current_session, latest_valid)
+    selected_session, selected_scope = _select_session(current_session, latest_valid)
     rows = (
         scanner_service.repo.discarded_for_session(selected_session.id)
         if selected_session is not None
@@ -1538,7 +1542,7 @@ def _watch_row(
         data_origin = "stale"
 
     risk_label = str(row.risk_label or "").lower()
-    risk_ok = risk_label in {"bajo", "medio"}
+    risk_ok = risk_label in _ACCEPTABLE_RISK_LABELS
     liquidity_value = float(row.liquidity_usd or 0.0)
     liquidity_ok = liquidity_value >= float(min_primary_liquidity or 0.0)
     confidence_ok = metadata_confidence not in {"fallback", "unverified"}

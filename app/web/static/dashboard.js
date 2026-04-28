@@ -545,7 +545,7 @@ function buildExecutiveSummary(health, latest, longRows, shortRows) {
   if (highRisk > Math.max(2, safeLatest.length * 0.25)) marketRisk = "Alto";
   else if (mediumRisk > Math.max(2, safeLatest.length * 0.35)) marketRisk = "Medio";
 
-  const noReliableOpportunity = "Sin oportunidad actual confiable";
+  const noReliableOpportunity = "Sin oportunidades actuales confiables";
   const bestLong = safeLongRows[0] ? `${identityFromRow(safeLongRows[0]).symbol} (${fmtNum(safeLongRows[0].long_score, 1)})` : noReliableOpportunity;
   const bestShort = safeShortRows[0] ? `${identityFromRow(safeShortRows[0]).symbol} (${fmtNum(safeShortRows[0].short_score, 1)})` : noReliableOpportunity;
 
