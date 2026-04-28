@@ -1271,6 +1271,10 @@ def _select_session(current, latest_valid):
     return None, "none"
 
 
+# Session-origin tags that indicate a demo / QA / synthetic session
+_DEMO_SESSION_TAGS: tuple[str, ...] = ("demo", "qa", "scenario", "synthetic")
+
+
 def _is_demo_session(session) -> bool:
     if session is None:
         return False
@@ -1278,8 +1282,8 @@ def _is_demo_session(session) -> bool:
     notes = session.notes_json or {}
     trigger = str(cfg.get("trigger") or "").strip().lower()
     notes_text = str(notes.get("mode") or notes.get("scenario") or "").strip().lower()
-    return any(tag in trigger for tag in ("demo", "qa", "scenario", "synthetic")) or any(
-        tag in notes_text for tag in ("demo", "qa", "scenario", "synthetic")
+    return any(tag in trigger for tag in _DEMO_SESSION_TAGS) or any(
+        tag in notes_text for tag in _DEMO_SESSION_TAGS
     )
 
 
@@ -1526,11 +1530,7 @@ def _watch_row(
     is_stale = _is_stale_freshness(freshness_state)
     fallback_only = is_fallback
 
-    data_origin = "historical"
-    if is_current_session:
-        data_origin = "live"
-    elif is_latest_valid_session:
-        data_origin = "historical"
+    data_origin = "live" if is_current_session else "historical"
 
     if is_demo:
         data_origin = "demo"
